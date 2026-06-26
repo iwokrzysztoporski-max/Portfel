@@ -273,8 +273,9 @@ function uniqueTickers(){
   allTx.forEach(tx=>{
     if(!tx.ticker) return;
     const key = tx.ticker+"|"+(tx.country||"US");
-    if(!m[key]) m[key] = { ticker:tx.ticker, country:tx.country||"US", firstDate:tx.date };
-    if(tx.date < m[key].firstDate) m[key].firstDate = tx.date;
+    const price = (tx.price!=null) ? tx.price : null;
+    if(!m[key]) m[key] = { ticker:tx.ticker, country:tx.country||"US", firstDate:tx.date, buyPrice:price };
+    else if(tx.date < m[key].firstDate){ m[key].firstDate = tx.date; m[key].buyPrice = price; }
   });
   return Object.values(m).sort((a,b)=> a.ticker.localeCompare(b.ticker));
 }
@@ -326,13 +327,15 @@ async function loadChart(t){
     const end = lastBusinessDay();
     const range = series.filter(p=> p.date >= t.firstDate && p.date <= end);
     if(!range.length) throw new Error("Brak danych od daty zakupu ("+t.firstDate+") do dziś.");
-    const base = range[0].close;
+    const usePrice = (t.buyPrice!=null && t.buyPrice>0);
+    const base = usePrice ? t.buyPrice : range[0].close;
+    const baseLabel = usePrice ? ("cena zakupu "+t.buyPrice) : "kurs zamknięcia";
     const pts = range.map(p=> ({ date:p.date, pct:(p.close-base)/base*100, close:p.close }));
     const last = pts[pts.length-1];
     const isProfit = last.pct >= 0;
     card.innerHTML =
       '<div class="rhead"><div><div class="tk" style="font-size:17px">'+t.ticker+'</div>'+
-      '<div class="meta">od '+t.firstDate+' · '+pts.length+' sesji</div></div>'+
+      '<div class="meta">od '+t.firstDate+' · baza: '+baseLabel+' · '+pts.length+' sesji</div></div>'+
       '<div class="rpct '+(isProfit?"gain":"loss")+'">'+(isProfit?"+":"")+last.pct.toFixed(2)+'%</div></div>'+
       '<canvas id="chart" height="150"></canvas>'+
       '<div class="rfoot">Ostatni kurs zamknięcia: <strong>'+last.close.toFixed(2)+'</strong></div>';
