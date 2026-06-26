@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Portfel</title>
+
+<!-- Ikona + zachowanie jak natywna apka po dodaniu do ekranu iPhone -->
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="icon" href="/icon-192.png" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Portfel" />
+<meta name="theme-color" content="#0F1B2D" />
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ink: #0F1B2D;
+    --bg: #F5F6F8;
+    --surface: #FFFFFF;
+    --muted: #64748B;
+    --line: #E6E9EF;
+    --accent: #2563EB;
+    --gain: #16A34A;
+    --loss: #DC2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink);
+    padding: max(16px, env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { padding: 8px 2px 20px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img { width: 34px; height: 34px; border-radius: 9px; }
+  h1 { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 1px 2px rgba(15,27,45,.04), 0 8px 24px rgba(15,27,45,.04);
+  }
+
+  .grid { display: grid; grid-template-columns: 1fr 96px 168px; gap: 10px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+
+  label.f { font-size: 12px; color: var(--muted); display: block; margin: 0 0 5px 2px; font-weight: 600; }
+  input, select {
+    width: 100%; padding: 11px 12px; font-size: 15px;
+    border: 1px solid #CBD5E1; border-radius: 10px; background: #fff;
+    outline: none; color: var(--ink); -webkit-appearance: none; appearance: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5L6 7.5L9 4.5' stroke='%2364748B' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 30px; }
+
+  button.primary {
+    margin-top: 14px; width: 100%; padding: 13px 20px;
+    background: var(--accent); color: #fff; border: 0; border-radius: 11px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  button.primary:disabled { opacity: .6; cursor: default; }
+
+  .err { margin-top: 12px; color: var(--loss); font-size: 13px; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px; padding: 10px 12px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 0; }
+  .chip { padding: 7px 11px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: #fff; display: flex; align-items: center; gap: 8px; }
+  .chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .chip .x { opacity: .5; }
+  .chip .x:hover { opacity: 1; }
+
+  .result { margin-top: 18px; }
+  .rhead { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 6px; }
+  .rticker { font-size: 18px; font-weight: 800; }
+  .rmeta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .rpct { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .rfoot { font-size: 12px; color: var(--muted); text-align: right; margin-top: 6px; }
+  .gain { color: var(--gain); }
+  .loss { color: var(--loss); }
+
+  .empty { text-align: center; color: #94A3B8; font-size: 14px; padding: 40px 10px; }
+  canvas { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <img src="/icon-192.png" alt="" />
+      <h1>Portfel — zwrot w czasie</h1>
+    </div>
+    <p class="sub">Dane zapisują się na stałe w tym urządzeniu · 1 akcja na pozycję · zakres: data zakupu → ostatni dzień roboczy (D-1).</p>
+  </header>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label class="f">Ticker</label>
+        <input id="ticker" placeholder="np. CRWD / SNOW / CDR" autocapitalize="characters" autocomplete="off" />
+      </div>
+      <div>
+        <label class="f">Kraj</label>
+        <select id="country">
+          <option value="US">US</option>
+          <option value="PL">PL</option>
+        </select>
+      </div>
+      <div>
+        <label class="f">Data zakupu</label>
+        <input id="buyDate" type="date" />
+      </div>
+    </div>
+    <button class="primary" id="fetchBtn">Pobierz dane</button>
+    <div id="err" class="err" style="display:none"></div>
+  </div>
+
+  <div id="chips" class="chips"></div>
+
+  <div id="result"></div>
+  <div id="empty" class="empty">Dodaj pierwszą spółkę używając formularza powyżej.</div>
+</div>
+
+<script>
+const KEY = "positions:v1";
+let positions = [];
+let selected = null;
+let chart = null;
+
+// ---- trwaly zapis: localStorage (dziala w prawdziwej aplikacji webowej) ----
+function load() {
+  try { positions = JSON.parse(localStorage.getItem(KEY) || "[]"); }
+  catch { positions = []; }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(positions)); }
+  catch (e) { console.error("Zapis nieudany", e); }
+}
+
+function lastBusinessDay() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function buildReturnSeries(prices, buyDate) {
+  const end = lastBusinessDay();
+  const range = prices.filter(p => p.date >= buyDate && p.date <= end);
+  if (!range.length) return [];
+  const base = range[0].close;
+  return range.map(p => ({ date: p.date, pct: ((p.close - base) / base) * 100, close: p.close }));
+}
+
+async function fetchPrices(symbol, country) {
+  const url = "/api/prices?symbol=" + encodeURIComponent(symbol) + "&country=" + encodeURIComponent(country);
+  const r = await fetch(url);
+  const data = await r.json();
+  if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
+  return data.prices;
+}
+
+const $ = id => document.getElementById(id);
+
+function showErr(msg) {
+  const el = $("err");
+  if (!msg) { el.style.display = "none"; return; }
+  el.textContent = msg; el.style.display = "block";
+}
+
+async function handleFetch() {
+  showErr("");
+  const ticker = $("ticker").value.trim().toUpperCase();
+  const country = $("country").value;
+  const buyDate = $("buyDate").value;
+  if (!ticker) return showErr("Podaj ticker.");
+  if (!buyDate) return showErr("Podaj datę zakupu.");
+
+  const btn = $("fetchBtn");
+  btn.disabled = true; btn.textContent = "Pobieram…";
+  try {
+    const prices = await fetchPrices(ticker, country);
+    const series = buildReturnSeries(prices, buyDate);
+    if (!series.length) throw new Error("Brak danych w zakresie od daty zakupu do D-1. Sprawdź ticker i datę.");
+    const pos = {
+      id: Date.now().toString(),
+      ticker, country, buyDate,
+      fetchedAt: lastBusinessDay(),
+      series,
+    };
+    positions = positions.filter(p => !(p.ticker === ticker && p.buyDate === buyDate));
+    positions.push(pos);
+    save();
+    selected = pos.id;
+    $("ticker").value = "";
+    render();
+  } catch (e) {
+    showErr("Błąd: " + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Pobierz dane";
+  }
+}
+
+function handleDelete(id, ev) {
+  ev.stopPropagation();
+  positions = positions.filter(p => p.id !== id);
+  save();
+  if (selected === id) selected = positions.length ? positions[0].id : null;
+  render();
+}
+
+function render() {
+  // chipy
+  const chips = $("chips");
+  chips.innerHTML = "";
+  positions.forEach(p => {
+    const c = document.createElement("div");
+    c.className = "chip" + (p.id === selected ? " active" : "");
+    c.textContent = p.ticker + " · " + p.country + " ";
+    const x = document.createElement("span");
+    x.className = "x"; x.textContent = "✕";
+    x.onclick = (ev) => handleDelete(p.id, ev);
+    c.appendChild(x);
+    c.onclick = () => { selected = p.id; render(); };
+    chips.appendChild(c);
+  });
+
+  const cur = positions.find(p => p.id === selected);
+  $("empty").style.display = positions.length ? "none" : "block";
+
+  const result = $("result");
+  if (!cur) { result.innerHTML = ""; if (chart) { chart.destroy(); chart = null; } return; }
+
+  const last = cur.series[cur.series.length - 1];
+  const isProfit = last.pct >= 0;
+  const cls = isProfit ? "gain" : "loss";
+  const sign = isProfit ? "+" : "";
+
+  result.innerHTML =
+    '<div class="card result">' +
+      '<div class="rhead">' +
+        '<div><div class="rticker">' + cur.ticker + '</div>' +
+        '<div class="rmeta">zakup ' + cur.buyDate + ' · dane do ' + cur.fetchedAt + ' · ' + cur.series.length + ' sesji</div></div>' +
+        '<div class="rpct ' + cls + '">' + sign + last.pct.toFixed(2) + '%</div>' +
+      '</div>' +
+      '<canvas id="chart" height="120"></canvas>' +
+      '<div class="rfoot">Ostatni kurs zamknięcia: <strong>' + last.close.toFixed(2) + '</strong></div>' +
+    '</div>';
+
+  drawChart(cur, isProfit);
+}
+
+function drawChart(cur, isProfit) {
+  if (chart) { chart.destroy(); chart = null; }
+  const ctx = $("chart").getContext("2d");
+  const color = isProfit ? "#16A34A" : "#DC2626";
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: cur.series.map(p => p.date),
+      datasets: [{
+        data: cur.series.map(p => p.pct),
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.15,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: c => "Zwrot: " + c.parsed.y.toFixed(2) + "%",
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6, font: { size: 10 }, color: "#94A3B8" }, grid: { display: false } },
+        y: {
+          ticks: { callback: v => v.toFixed(0) + "%", font: { size: 10 }, color: "#94A3B8" },
+          grid: { color: "#EEF1F5" },
+        },
+      },
+    },
+  });
+}
+
+$("fetchBtn").addEventListener("click", handleFetch);
+load();
+selected = positions.length ? positions[0].id : null;
+render();
+</script>
+</body>
+</html>
