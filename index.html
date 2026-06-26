@@ -14,6 +14,7 @@
 <meta name="theme-color" content="#0F1B2D" />
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="/config.js"></script>
 
 <style>
@@ -33,7 +34,7 @@
   .brand{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
   .brand img{width:32px;height:32px;border-radius:9px;}
   h1{font-size:18px;font-weight:800;margin:0;}
-  .sub{color:var(--muted);font-size:13px;margin:4px 0 18px;}
+  .sub{color:var(--muted);font-size:13px;margin:4px 0 16px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;
         box-shadow:0 1px 2px rgba(15,27,45,.04),0 8px 24px rgba(15,27,45,.04);}
   label.f{font-size:12px;color:var(--muted);display:block;margin:0 0 5px 2px;font-weight:600;}
@@ -57,7 +58,7 @@
   .msg{font-size:13px;margin-top:10px;padding:10px 12px;border-radius:10px;}
   .msg.ok{color:var(--gain);background:#F0FDF4;border:1px solid #BBF7D0;}
   .msg.err{color:var(--loss);background:#FEF2F2;border:1px solid #FECACA;}
-  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
   .who{font-size:12px;color:var(--muted);}
   .logout{font-size:12px;color:var(--accent);background:none;border:0;cursor:pointer;font-weight:600;}
   .badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;display:inline-block;margin-right:6px;}
@@ -65,6 +66,16 @@
   .center{min-height:70vh;display:flex;flex-direction:column;justify-content:center;}
   .pill{display:inline-block;background:#EFF6FF;color:var(--accent);font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;margin-bottom:12px;}
   .hint{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;}
+  .tabs{display:flex;gap:4px;background:#EEF1F5;border-radius:12px;padding:4px;margin-bottom:16px;}
+  .tabs button{flex:1;border:0;border-radius:9px;padding:9px 0;font-size:13px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);}
+  .tabs button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(15,27,45,.08);}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+  .chip{padding:7px 12px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:#fff;}
+  .chip.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .rhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .rpct{font-size:28px;font-weight:800;letter-spacing:-.02em;}
+  .gain{color:var(--gain);} .loss{color:var(--loss);}
+  .rfoot{font-size:12px;color:var(--muted);text-align:right;margin-top:6px;}
 </style>
 </head>
 <body>
@@ -76,6 +87,11 @@
 const $ = (id) => document.getElementById(id);
 let sb = null;
 let session = null;
+let allTx = [];
+let activeTab = "tx";
+let chart = null;
+let selectedTicker = null;
+const priceCache = {}; // symbol|country -> [{date,close}]
 
 function configOk(){
   return window.SUPABASE_URL && window.SUPABASE_ANON_KEY
@@ -126,27 +142,17 @@ function renderLogin(){
   $("signupBtn").onclick = doSignup;
   $("password").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 }
-
-function creds(){
-  return { email: $("email").value.trim(), password: $("password").value };
-}
-
+function creds(){ return { email: $("email").value.trim(), password: $("password").value }; }
 async function doLogin(){
-  const { email, password } = creds();
-  const msg = $("loginMsg");
+  const { email, password } = creds(); const msg = $("loginMsg");
   if(!email || !password){ msg.innerHTML = '<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
   const btn = $("loginBtn"); btn.disabled = true; btn.textContent = "Loguję…";
   const { error } = await sb.auth.signInWithPassword({ email, password });
   btn.disabled = false; btn.textContent = "Zaloguj";
-  if(error){
-    let m = "Niepoprawny e-mail lub hasło. Jeśli logujesz się pierwszy raz, kliknij „Utwórz konto”.";
-    msg.innerHTML = '<div class="msg err">'+m+'</div>';
-  }
+  if(error) msg.innerHTML = '<div class="msg err">Niepoprawny e-mail lub hasło. Jeśli pierwszy raz — kliknij „Utwórz konto”.</div>';
 }
-
 async function doSignup(){
-  const { email, password } = creds();
-  const msg = $("loginMsg");
+  const { email, password } = creds(); const msg = $("loginMsg");
   if(!email || !password){ msg.innerHTML = '<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
   if(password.length < 6){ msg.innerHTML = '<div class="msg err">Hasło musi mieć min. 6 znaków.</div>'; return; }
   const btn = $("signupBtn"); btn.disabled = true; btn.textContent = "Tworzę…";
@@ -155,26 +161,47 @@ async function doSignup(){
   if(error){
     let m = error.message;
     if(/already registered|already exists/i.test(m)) m = "Konto z tym e-mailem już istnieje — kliknij „Zaloguj”.";
-    msg.innerHTML = '<div class="msg err">'+m+'</div>';
-    return;
+    msg.innerHTML = '<div class="msg err">'+m+'</div>'; return;
   }
-  if(!data.session){
-    msg.innerHTML = '<div class="msg err">Konto utworzone, ale Supabase wymaga potwierdzenia e-mail. '+
-      'W Supabase: Authentication → Sign In / Providers → Email → wyłącz „Confirm email”, potem zaloguj się.</div>';
-    return;
-  }
-  // jest sesja -> onAuthStateChange przeniesie do aplikacji
+  if(!data.session) msg.innerHTML = '<div class="msg err">Wyłącz „Confirm email” w Supabase (Authentication → Email), potem zaloguj się.</div>';
 }
 
-/* ---------- APLIKACJA (po zalogowaniu) ---------- */
-async function renderApp(){
+/* ---------- APLIKACJA ---------- */
+function renderApp(){
   $("root").innerHTML =
     '<div class="topbar">'+
       '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
       '<div style="text-align:right"><div class="who">'+session.user.email+'</div>'+
       '<button class="logout" id="logoutBtn">Wyloguj</button></div>'+
     '</div>'+
-    '<p class="sub">Etap 1: dane w chmurze. Dodaj transakcję na jednym urządzeniu i sprawdź, że pojawia się na drugim.</p>'+
+    '<div class="tabs">'+
+      '<button id="tab_tx">Transakcje</button>'+
+      '<button id="tab_ch">Zwroty</button>'+
+    '</div>'+
+    '<div id="content"></div>';
+  $("logoutBtn").onclick = ()=> sb.auth.signOut();
+  $("tab_tx").onclick = ()=>{ activeTab="tx"; renderTab(); };
+  $("tab_ch").onclick = ()=>{ activeTab="ch"; renderTab(); };
+  fetchTx().then(renderTab);
+}
+
+function renderTab(){
+  $("tab_tx").className = activeTab==="tx" ? "active" : "";
+  $("tab_ch").className = activeTab==="ch" ? "active" : "";
+  if(activeTab==="tx") renderTxView(); else renderChartView();
+}
+
+async function fetchTx(){
+  const { data, error } = await sb.from("transactions")
+    .select("*").order("date",{ascending:false}).order("created_at",{ascending:false});
+  allTx = (!error && data) ? data : [];
+  return allTx;
+}
+
+/* ----- widok TRANSAKCJE ----- */
+function renderTxView(){
+  $("content").innerHTML =
+    '<p class="sub">Dodaj transakcję — zapisze się w chmurze i pojawi na każdym Twoim urządzeniu.</p>'+
     '<div class="card">'+
       '<div class="grid">'+
         '<div><label class="f">Ticker</label><input id="t_ticker" placeholder="np. CRWD" autocapitalize="characters"/></div>'+
@@ -193,11 +220,26 @@ async function renderApp(){
     '</div>'+
     '<div class="card" style="margin-top:14px">'+
       '<label class="f" style="margin-bottom:10px">Twoje transakcje (z chmury)</label>'+
-      '<div id="txList"><div class="empty">Wczytuję…</div></div>'+
+      '<div id="txList"></div>'+
     '</div>';
-  $("logoutBtn").onclick = ()=> sb.auth.signOut();
   $("addBtn").onclick = addTx;
-  loadTx();
+  drawTxList();
+}
+
+function drawTxList(){
+  const box = $("txList");
+  if(!allTx.length){ box.innerHTML = '<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; return; }
+  box.innerHTML = allTx.map(tx=>{
+    const isBuy = tx.type === "buy";
+    const c = isBuy ? "#16A34A" : "#DC2626";
+    const t = isBuy ? "KUP" : "SPR";
+    const det = [ tx.qty!=null ? tx.qty+" szt" : null, tx.price!=null ? "@ "+tx.price : null ].filter(Boolean).join(" · ");
+    return '<div class="row"><div><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+
+      '<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span></div>'+
+      '<div class="meta">'+tx.date+(det?" · "+det:"")+'</div></div>'+
+      '<span class="x" data-id="'+tx.id+'">✕</span></div>';
+  }).join("");
+  box.querySelectorAll(".x").forEach(el=> el.onclick = ()=> delTx(el.getAttribute("data-id")));
 }
 
 async function addTx(){
@@ -215,35 +257,107 @@ async function addTx(){
   btn.disabled = false; btn.textContent = "Dodaj transakcję";
   if(error){ msg.innerHTML = '<div class="msg err">Błąd zapisu: '+error.message+'</div>'; return; }
   msg.innerHTML = '<div class="msg ok">Zapisano w chmurze.</div>';
-  $("t_ticker").value = ""; $("t_qty").value = ""; $("t_price").value = "";
-  setTimeout(()=>{ msg.innerHTML=""; }, 2500);
-  loadTx();
-}
-
-async function loadTx(){
-  const box = $("txList");
-  const { data, error } = await sb.from("transactions")
-    .select("*").order("date",{ascending:false}).order("created_at",{ascending:false});
-  if(error){ box.innerHTML = '<div class="msg err">Błąd odczytu: '+error.message+'</div>'; return; }
-  if(!data || !data.length){ box.innerHTML = '<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; return; }
-  box.innerHTML = data.map(tx=>{
-    const isBuy = tx.type === "buy";
-    const badgeC = isBuy ? "#16A34A" : "#DC2626";
-    const badgeT = isBuy ? "KUP" : "SPR";
-    const det = [ tx.qty!=null ? tx.qty+" szt" : null, tx.price!=null ? "@ "+tx.price : null ].filter(Boolean).join(" · ");
-    return '<div class="row">'+
-      '<div><div><span class="badge" style="background:'+badgeC+'22;color:'+badgeC+'">'+badgeT+'</span>'+
-      '<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span></div>'+
-      '<div class="meta">'+tx.date+(det?" · "+det:"")+'</div></div>'+
-      '<span class="x" data-id="'+tx.id+'">✕</span>'+
-    '</div>';
-  }).join("");
-  box.querySelectorAll(".x").forEach(el=>{ el.onclick = ()=> delTx(el.getAttribute("data-id")); });
+  $("t_ticker").value=""; $("t_qty").value=""; $("t_price").value="";
+  setTimeout(()=>{ msg.innerHTML=""; }, 2000);
+  await fetchTx(); drawTxList();
 }
 
 async function delTx(id){
-  const { error } = await sb.from("transactions").delete().eq("id", id);
-  if(!error) loadTx();
+  await sb.from("transactions").delete().eq("id", id);
+  await fetchTx(); drawTxList();
+}
+
+/* ----- widok ZWROTY (wykres per spółka) ----- */
+function uniqueTickers(){
+  const m = {};
+  allTx.forEach(tx=>{
+    if(!tx.ticker) return;
+    const key = tx.ticker+"|"+(tx.country||"US");
+    if(!m[key]) m[key] = { ticker:tx.ticker, country:tx.country||"US", firstDate:tx.date };
+    if(tx.date < m[key].firstDate) m[key].firstDate = tx.date;
+  });
+  return Object.values(m).sort((a,b)=> a.ticker.localeCompare(b.ticker));
+}
+
+function renderChartView(){
+  const tickers = uniqueTickers();
+  if(!tickers.length){
+    $("content").innerHTML = '<div class="card"><div class="empty">Dodaj najpierw transakcje, aby zobaczyć zwroty.</div></div>';
+    return;
+  }
+  if(!selectedTicker || !tickers.find(t=> (t.ticker+"|"+t.country)===selectedTicker))
+    selectedTicker = tickers[0].ticker+"|"+tickers[0].country;
+  $("content").innerHTML =
+    '<p class="sub">Zwrot od dnia pierwszego zakupu do ostatniej sesji (od 0%). Wybierz spółkę:</p>'+
+    '<div class="chips" id="chips"></div>'+
+    '<div class="card" id="chartCard"><div class="empty">Wybierz spółkę…</div></div>';
+  const chips = $("chips");
+  chips.innerHTML = tickers.map(t=>{
+    const key = t.ticker+"|"+t.country;
+    return '<div class="chip'+(key===selectedTicker?" active":"")+'" data-key="'+key+'">'+t.ticker+' · '+t.country+'</div>';
+  }).join("");
+  chips.querySelectorAll(".chip").forEach(el=>{
+    el.onclick = ()=>{ selectedTicker = el.getAttribute("data-key"); renderChartView(); };
+  });
+  loadChart(tickers.find(t=> (t.ticker+"|"+t.country)===selectedTicker));
+}
+
+function lastBusinessDay(){
+  const d = new Date(); d.setDate(d.getDate()-1);
+  while(d.getDay()===0 || d.getDay()===6) d.setDate(d.getDate()-1);
+  return d.toISOString().slice(0,10);
+}
+
+async function fetchSeries(ticker, country){
+  const key = ticker+"|"+country;
+  if(priceCache[key]) return priceCache[key];
+  const r = await fetch("/api/prices?symbol="+encodeURIComponent(ticker)+"&country="+encodeURIComponent(country));
+  const data = await r.json();
+  if(!r.ok || data.error) throw new Error(data.error || ("HTTP "+r.status));
+  priceCache[key] = data.prices;
+  return data.prices;
+}
+
+async function loadChart(t){
+  const card = $("chartCard");
+  card.innerHTML = '<div class="empty">Pobieram kursy '+t.ticker+'…</div>';
+  try{
+    const series = await fetchSeries(t.ticker, t.country);
+    const end = lastBusinessDay();
+    const range = series.filter(p=> p.date >= t.firstDate && p.date <= end);
+    if(!range.length) throw new Error("Brak danych od daty zakupu ("+t.firstDate+") do dziś.");
+    const base = range[0].close;
+    const pts = range.map(p=> ({ date:p.date, pct:(p.close-base)/base*100, close:p.close }));
+    const last = pts[pts.length-1];
+    const isProfit = last.pct >= 0;
+    card.innerHTML =
+      '<div class="rhead"><div><div class="tk" style="font-size:17px">'+t.ticker+'</div>'+
+      '<div class="meta">od '+t.firstDate+' · '+pts.length+' sesji</div></div>'+
+      '<div class="rpct '+(isProfit?"gain":"loss")+'">'+(isProfit?"+":"")+last.pct.toFixed(2)+'%</div></div>'+
+      '<canvas id="chart" height="150"></canvas>'+
+      '<div class="rfoot">Ostatni kurs zamknięcia: <strong>'+last.close.toFixed(2)+'</strong></div>';
+    drawChart(pts, isProfit);
+  }catch(e){
+    card.innerHTML = '<div class="msg err">'+e.message+'</div>';
+  }
+}
+
+function drawChart(pts, isProfit){
+  if(chart){ chart.destroy(); chart=null; }
+  const ctx = $("chart").getContext("2d");
+  const color = isProfit ? "#16A34A" : "#DC2626";
+  chart = new Chart(ctx, {
+    type:"line",
+    data:{ labels: pts.map(p=>p.date), datasets:[{ data: pts.map(p=>p.pct), borderColor:color, borderWidth:2, pointRadius:0, tension:0.15 }] },
+    options:{
+      responsive:true, maintainAspectRatio:true,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=> "Zwrot: "+c.parsed.y.toFixed(2)+"%" } } },
+      scales:{
+        x:{ ticks:{ maxTicksLimit:6, font:{size:10}, color:"#94A3B8" }, grid:{display:false} },
+        y:{ ticks:{ callback:v=> v.toFixed(0)+"%", font:{size:10}, color:"#94A3B8" }, grid:{color:"#EEF1F5"} }
+      }
+    }
+  });
 }
 
 init();
