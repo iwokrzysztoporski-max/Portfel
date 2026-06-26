@@ -13,9 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Portfel" />
 <meta name="theme-color" content="#0F1B2D" />
 
-<!-- klient Supabase (logowanie + baza w chmurze) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<!-- Twoje klucze Supabase (plik config.js) -->
 <script src="/config.js"></script>
 
 <style>
@@ -42,9 +40,11 @@
   input,select{width:100%;padding:11px 12px;font-size:15px;border:1px solid #CBD5E1;border-radius:10px;
         background:#fff;outline:none;color:var(--ink);-webkit-appearance:none;appearance:none;}
   input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12);}
+  input.code{font-size:24px;letter-spacing:8px;text-align:center;font-weight:700;font-family:monospace;}
   button.primary{width:100%;padding:13px 20px;background:var(--accent);color:#fff;border:0;border-radius:11px;
         font-size:15px;font-weight:700;cursor:pointer;}
   button.primary:disabled{opacity:.6;cursor:default;}
+  button.link{background:none;border:0;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;}
   .grid{display:grid;grid-template-columns:1fr 80px 90px;gap:8px;}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
   @media(max-width:520px){.grid{grid-template-columns:1fr;}.grid2{grid-template-columns:1fr;}}
@@ -75,6 +75,7 @@
 const $ = (id) => document.getElementById(id);
 let sb = null;
 let session = null;
+let pendingEmail = null;
 
 function configOk(){
   return window.SUPABASE_URL && window.SUPABASE_ANON_KEY
@@ -100,40 +101,79 @@ function init(){
 
 function route(){
   if(session && session.user) renderApp();
-  else renderLogin();
+  else renderLoginEmail();
 }
 
-/* ---------- LOGOWANIE (magic link) ---------- */
-function renderLogin(){
+/* ---------- LOGOWANIE KROK 1: e-mail ---------- */
+function renderLoginEmail(){
   $("root").innerHTML =
     '<div class="center">'+
       '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
       '<p class="sub">Zaloguj się, by Twoje dane były te same na telefonie i komputerze.</p>'+
       '<div class="card">'+
-        '<span class="pill">Logowanie bez hasła</span>'+
+        '<span class="pill">Logowanie kodem z e-maila</span>'+
         '<label class="f">Twój e-mail</label>'+
         '<input id="email" type="email" inputmode="email" autocomplete="email" placeholder="ty@example.com"/>'+
-        '<button class="primary" id="loginBtn" style="margin-top:12px">Wyślij link logowania</button>'+
+        '<button class="primary" id="sendBtn" style="margin-top:12px">Wyślij kod</button>'+
         '<div id="loginMsg"></div>'+
       '</div>'+
     '</div>';
-  $("loginBtn").onclick = sendLink;
-  $("email").addEventListener("keydown", e=>{ if(e.key==="Enter") sendLink(); });
+  if(pendingEmail) $("email").value = pendingEmail;
+  $("sendBtn").onclick = sendCode;
+  $("email").addEventListener("keydown", e=>{ if(e.key==="Enter") sendCode(); });
 }
 
-async function sendLink(){
+async function sendCode(){
   const email = $("email").value.trim();
   const msg = $("loginMsg");
   if(!email){ msg.innerHTML = '<div class="msg err">Podaj e-mail.</div>'; return; }
-  const btn = $("loginBtn"); btn.disabled = true; btn.textContent = "Wysyłam…";
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options:{ emailRedirectTo: window.location.origin }
-  });
-  btn.disabled = false; btn.textContent = "Wyślij link logowania";
-  if(error){ msg.innerHTML = '<div class="msg err">Błąd: '+error.message+'</div>'; return; }
-  msg.innerHTML = '<div class="msg ok">Sprawdź skrzynkę — kliknij link w e-mailu, by się zalogować. '+
-                  'Możesz zamknąć tę kartę; link otworzy aplikację.</div>';
+  const btn = $("sendBtn"); btn.disabled = true; btn.textContent = "Wysyłam…";
+  const { error } = await sb.auth.signInWithOtp({ email });
+  btn.disabled = false; btn.textContent = "Wyślij kod";
+  if(error){
+    let m = error.message;
+    if(/rate limit/i.test(m)) m = "Za dużo prób w krótkim czasie. Odczekaj ~godzinę i spróbuj ponownie. (Na komputerze, gdzie już się zalogowałeś, działasz normalnie.)";
+    msg.innerHTML = '<div class="msg err">'+m+'</div>';
+    return;
+  }
+  pendingEmail = email;
+  renderLoginCode();
+}
+
+/* ---------- LOGOWANIE KROK 2: kod ---------- */
+function renderLoginCode(){
+  $("root").innerHTML =
+    '<div class="center">'+
+      '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
+      '<p class="sub">Wysłaliśmy 6-cyfrowy kod na <strong>'+pendingEmail+'</strong>. Otwórz e-mail, przepisz kod tutaj i zaloguj się — bez wychodzenia z aplikacji.</p>'+
+      '<div class="card">'+
+        '<label class="f">Kod z e-maila</label>'+
+        '<input id="code" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••"/>'+
+        '<button class="primary" id="verifyBtn" style="margin-top:12px">Zaloguj</button>'+
+        '<div id="codeMsg"></div>'+
+        '<div style="text-align:center;margin-top:6px">'+
+          '<button class="link" id="backBtn">← zmień e-mail</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  $("verifyBtn").onclick = verifyCode;
+  $("backBtn").onclick = renderLoginEmail;
+  $("code").addEventListener("keydown", e=>{ if(e.key==="Enter") verifyCode(); });
+  $("code").focus();
+}
+
+async function verifyCode(){
+  const token = $("code").value.trim();
+  const msg = $("codeMsg");
+  if(token.length < 6){ msg.innerHTML = '<div class="msg err">Wpisz pełny 6-cyfrowy kod.</div>'; return; }
+  const btn = $("verifyBtn"); btn.disabled = true; btn.textContent = "Sprawdzam…";
+  const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
+  btn.disabled = false; btn.textContent = "Zaloguj";
+  if(error){
+    msg.innerHTML = '<div class="msg err">Kod niepoprawny lub wygasł. Sprawdź, czy przepisałeś dobrze, albo wyślij nowy.</div>';
+    return;
+  }
+  // sukces -> onAuthStateChange przeniesie do aplikacji
 }
 
 /* ---------- APLIKACJA (po zalogowaniu) ---------- */
@@ -181,9 +221,7 @@ async function addTx(){
   if(!ticker){ msg.innerHTML = '<div class="msg err">Podaj ticker.</div>'; return; }
   if(!date){ msg.innerHTML = '<div class="msg err">Podaj datę.</div>'; return; }
   const btn = $("addBtn"); btn.disabled = true; btn.textContent = "Zapisuję…";
-  const { error } = await sb.from("transactions").insert({
-    date, country, type, ticker, qty, price
-  });
+  const { error } = await sb.from("transactions").insert({ date, country, type, ticker, qty, price });
   btn.disabled = false; btn.textContent = "Dodaj transakcję";
   if(error){ msg.innerHTML = '<div class="msg err">Błąd zapisu: '+error.message+'</div>'; return; }
   msg.innerHTML = '<div class="msg ok">Zapisano w chmurze.</div>';
@@ -202,10 +240,7 @@ async function loadTx(){
     const isBuy = tx.type === "buy";
     const badgeC = isBuy ? "#16A34A" : "#DC2626";
     const badgeT = isBuy ? "KUP" : "SPR";
-    const det = [
-      tx.qty!=null ? tx.qty+" szt" : null,
-      tx.price!=null ? "@ "+tx.price : null
-    ].filter(Boolean).join(" · ");
+    const det = [ tx.qty!=null ? tx.qty+" szt" : null, tx.price!=null ? "@ "+tx.price : null ].filter(Boolean).join(" · ");
     return '<div class="row">'+
       '<div><div><span class="badge" style="background:'+badgeC+'22;color:'+badgeC+'">'+badgeT+'</span>'+
       '<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span></div>'+
@@ -213,9 +248,7 @@ async function loadTx(){
       '<span class="x" data-id="'+tx.id+'">✕</span>'+
     '</div>';
   }).join("");
-  box.querySelectorAll(".x").forEach(el=>{
-    el.onclick = ()=> delTx(el.getAttribute("data-id"));
-  });
+  box.querySelectorAll(".x").forEach(el=>{ el.onclick = ()=> delTx(el.getAttribute("data-id")); });
 }
 
 async function delTx(id){
