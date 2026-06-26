@@ -40,11 +40,11 @@
   input,select{width:100%;padding:11px 12px;font-size:15px;border:1px solid #CBD5E1;border-radius:10px;
         background:#fff;outline:none;color:var(--ink);-webkit-appearance:none;appearance:none;}
   input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12);}
-  input.code{font-size:24px;letter-spacing:8px;text-align:center;font-weight:700;font-family:monospace;}
   button.primary{width:100%;padding:13px 20px;background:var(--accent);color:#fff;border:0;border-radius:11px;
         font-size:15px;font-weight:700;cursor:pointer;}
   button.primary:disabled{opacity:.6;cursor:default;}
-  button.link{background:none;border:0;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;}
+  button.secondary{width:100%;padding:12px 20px;background:#fff;color:var(--accent);border:1px solid #BFD3F5;
+        border-radius:11px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
   .grid{display:grid;grid-template-columns:1fr 80px 90px;gap:8px;}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
   @media(max-width:520px){.grid{grid-template-columns:1fr;}.grid2{grid-template-columns:1fr;}}
@@ -64,6 +64,7 @@
   .empty{text-align:center;color:#94A3B8;font-size:14px;padding:30px 10px;}
   .center{min-height:70vh;display:flex;flex-direction:column;justify-content:center;}
   .pill{display:inline-block;background:#EFF6FF;color:var(--accent);font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;margin-bottom:12px;}
+  .hint{font-size:11px;color:var(--muted);margin-top:8px;text-align:center;}
 </style>
 </head>
 <body>
@@ -75,7 +76,6 @@
 const $ = (id) => document.getElementById(id);
 let sb = null;
 let session = null;
-let pendingEmail = null;
 
 function configOk(){
   return window.SUPABASE_URL && window.SUPABASE_ANON_KEY
@@ -88,7 +88,7 @@ function init(){
     $("root").innerHTML =
       '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
       '<div class="card" style="margin-top:14px"><div class="msg err">Brak konfiguracji Supabase. '+
-      'Uzupełnij plik <strong>config.js</strong> (adres projektu i klucz publiczny), zgodnie z instrukcją.</div></div>';
+      'Uzupełnij plik <strong>config.js</strong> zgodnie z instrukcją.</div></div>';
     return;
   }
   sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
@@ -101,79 +101,69 @@ function init(){
 
 function route(){
   if(session && session.user) renderApp();
-  else renderLoginEmail();
+  else renderLogin();
 }
 
-/* ---------- LOGOWANIE KROK 1: e-mail ---------- */
-function renderLoginEmail(){
+/* ---------- LOGOWANIE e-mail + hasło ---------- */
+function renderLogin(){
   $("root").innerHTML =
     '<div class="center">'+
       '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
-      '<p class="sub">Zaloguj się, by Twoje dane były te same na telefonie i komputerze.</p>'+
+      '<p class="sub">Zaloguj się hasłem — te same dane na telefonie i komputerze.</p>'+
       '<div class="card">'+
-        '<span class="pill">Logowanie kodem z e-maila</span>'+
-        '<label class="f">Twój e-mail</label>'+
+        '<span class="pill">Logowanie e-mail + hasło</span>'+
+        '<label class="f">E-mail</label>'+
         '<input id="email" type="email" inputmode="email" autocomplete="email" placeholder="ty@example.com"/>'+
-        '<button class="primary" id="sendBtn" style="margin-top:12px">Wyślij kod</button>'+
+        '<label class="f" style="margin-top:10px">Hasło</label>'+
+        '<input id="password" type="password" autocomplete="current-password" placeholder="min. 6 znaków"/>'+
+        '<button class="primary" id="loginBtn" style="margin-top:14px">Zaloguj</button>'+
+        '<button class="secondary" id="signupBtn">Utwórz konto (pierwszy raz)</button>'+
         '<div id="loginMsg"></div>'+
+        '<div class="hint">Zapisz hasło w menedżerze haseł — nie będzie wysyłany żaden e-mail.</div>'+
       '</div>'+
     '</div>';
-  if(pendingEmail) $("email").value = pendingEmail;
-  $("sendBtn").onclick = sendCode;
-  $("email").addEventListener("keydown", e=>{ if(e.key==="Enter") sendCode(); });
+  $("loginBtn").onclick = doLogin;
+  $("signupBtn").onclick = doSignup;
+  $("password").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-async function sendCode(){
-  const email = $("email").value.trim();
+function creds(){
+  return { email: $("email").value.trim(), password: $("password").value };
+}
+
+async function doLogin(){
+  const { email, password } = creds();
   const msg = $("loginMsg");
-  if(!email){ msg.innerHTML = '<div class="msg err">Podaj e-mail.</div>'; return; }
-  const btn = $("sendBtn"); btn.disabled = true; btn.textContent = "Wysyłam…";
-  const { error } = await sb.auth.signInWithOtp({ email });
-  btn.disabled = false; btn.textContent = "Wyślij kod";
+  if(!email || !password){ msg.innerHTML = '<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
+  const btn = $("loginBtn"); btn.disabled = true; btn.textContent = "Loguję…";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Zaloguj";
+  if(error){
+    let m = "Niepoprawny e-mail lub hasło. Jeśli logujesz się pierwszy raz, kliknij „Utwórz konto”.";
+    msg.innerHTML = '<div class="msg err">'+m+'</div>';
+  }
+}
+
+async function doSignup(){
+  const { email, password } = creds();
+  const msg = $("loginMsg");
+  if(!email || !password){ msg.innerHTML = '<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
+  if(password.length < 6){ msg.innerHTML = '<div class="msg err">Hasło musi mieć min. 6 znaków.</div>'; return; }
+  const btn = $("signupBtn"); btn.disabled = true; btn.textContent = "Tworzę…";
+  const { data, error } = await sb.auth.signUp({ email, password });
+  btn.disabled = false; btn.textContent = "Utwórz konto (pierwszy raz)";
   if(error){
     let m = error.message;
-    if(/rate limit/i.test(m)) m = "Za dużo prób w krótkim czasie. Odczekaj ~godzinę i spróbuj ponownie. (Na komputerze, gdzie już się zalogowałeś, działasz normalnie.)";
+    if(/already registered|already exists/i.test(m)) m = "Konto z tym e-mailem już istnieje — kliknij „Zaloguj”.";
     msg.innerHTML = '<div class="msg err">'+m+'</div>';
     return;
   }
-  pendingEmail = email;
-  renderLoginCode();
-}
-
-/* ---------- LOGOWANIE KROK 2: kod ---------- */
-function renderLoginCode(){
-  $("root").innerHTML =
-    '<div class="center">'+
-      '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
-      '<p class="sub">Wysłaliśmy 6-cyfrowy kod na <strong>'+pendingEmail+'</strong>. Otwórz e-mail, przepisz kod tutaj i zaloguj się — bez wychodzenia z aplikacji.</p>'+
-      '<div class="card">'+
-        '<label class="f">Kod z e-maila</label>'+
-        '<input id="code" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••"/>'+
-        '<button class="primary" id="verifyBtn" style="margin-top:12px">Zaloguj</button>'+
-        '<div id="codeMsg"></div>'+
-        '<div style="text-align:center;margin-top:6px">'+
-          '<button class="link" id="backBtn">← zmień e-mail</button>'+
-        '</div>'+
-      '</div>'+
-    '</div>';
-  $("verifyBtn").onclick = verifyCode;
-  $("backBtn").onclick = renderLoginEmail;
-  $("code").addEventListener("keydown", e=>{ if(e.key==="Enter") verifyCode(); });
-  $("code").focus();
-}
-
-async function verifyCode(){
-  const token = $("code").value.trim();
-  const msg = $("codeMsg");
-  if(token.length < 6){ msg.innerHTML = '<div class="msg err">Wpisz pełny 6-cyfrowy kod.</div>'; return; }
-  const btn = $("verifyBtn"); btn.disabled = true; btn.textContent = "Sprawdzam…";
-  const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "email" });
-  btn.disabled = false; btn.textContent = "Zaloguj";
-  if(error){
-    msg.innerHTML = '<div class="msg err">Kod niepoprawny lub wygasł. Sprawdź, czy przepisałeś dobrze, albo wyślij nowy.</div>';
+  if(!data.session){
+    msg.innerHTML = '<div class="msg err">Konto utworzone, ale Supabase wymaga potwierdzenia e-mail. '+
+      'W Supabase: Authentication → Sign In / Providers → Email → wyłącz „Confirm email”, potem zaloguj się.</div>';
     return;
   }
-  // sukces -> onAuthStateChange przeniesie do aplikacji
+  // jest sesja -> onAuthStateChange przeniesie do aplikacji
 }
 
 /* ---------- APLIKACJA (po zalogowaniu) ---------- */
