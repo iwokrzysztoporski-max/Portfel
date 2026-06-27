@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Portfel</title>
-
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="icon" href="/icon-192.png" />
 <link rel="manifest" href="/manifest.json" />
@@ -12,40 +11,30 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Portfel" />
 <meta name="theme-color" content="#0F1B2D" />
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="/config.js"></script>
-
 <style>
-  :root{
-    --ink:#0F1B2D; --bg:#F5F6F8; --surface:#FFFFFF; --muted:#64748B;
-    --line:#E6E9EF; --accent:#2563EB; --gain:#16A34A; --loss:#DC2626;
-  }
+  :root{ --ink:#0F1B2D; --bg:#F5F6F8; --surface:#FFFFFF; --muted:#64748B;
+    --line:#E6E9EF; --accent:#2563EB; --gain:#16A34A; --loss:#DC2626; --bench:#F59E0B; }
   *{box-sizing:border-box;}
   html,body{margin:0;background:var(--bg);}
-  body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    color:var(--ink);
-    padding:max(16px,env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
-    -webkit-font-smoothing:antialiased;
-  }
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);
+    padding:max(16px,env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased;}
   .wrap{max-width:760px;margin:0 auto;}
   .brand{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
   .brand img{width:32px;height:32px;border-radius:9px;}
   h1{font-size:18px;font-weight:800;margin:0;}
   .sub{color:var(--muted);font-size:13px;margin:4px 0 16px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;
-        box-shadow:0 1px 2px rgba(15,27,45,.04),0 8px 24px rgba(15,27,45,.04);}
+    box-shadow:0 1px 2px rgba(15,27,45,.04),0 8px 24px rgba(15,27,45,.04);}
   label.f{font-size:12px;color:var(--muted);display:block;margin:0 0 5px 2px;font-weight:600;}
   input,select{width:100%;padding:11px 12px;font-size:15px;border:1px solid #CBD5E1;border-radius:10px;
-        background:#fff;outline:none;color:var(--ink);-webkit-appearance:none;appearance:none;}
+    background:#fff;outline:none;color:var(--ink);-webkit-appearance:none;appearance:none;}
   input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12);}
-  button.primary{width:100%;padding:13px 20px;background:var(--accent);color:#fff;border:0;border-radius:11px;
-        font-size:15px;font-weight:700;cursor:pointer;}
+  button.primary{width:100%;padding:13px 20px;background:var(--accent);color:#fff;border:0;border-radius:11px;font-size:15px;font-weight:700;cursor:pointer;}
   button.primary:disabled{opacity:.6;cursor:default;}
-  button.secondary{width:100%;padding:12px 20px;background:#fff;color:var(--accent);border:1px solid #BFD3F5;
-        border-radius:11px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
+  button.secondary{width:100%;padding:12px 20px;background:#fff;color:var(--accent);border:1px solid #BFD3F5;border-radius:11px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
   .grid{display:grid;grid-template-columns:1fr 80px 90px;gap:8px;}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
   @media(max-width:520px){.grid{grid-template-columns:1fr;}.grid2{grid-template-columns:1fr;}}
@@ -58,6 +47,7 @@
   .msg{font-size:13px;margin-top:10px;padding:10px 12px;border-radius:10px;}
   .msg.ok{color:var(--gain);background:#F0FDF4;border:1px solid #BBF7D0;}
   .msg.err{color:var(--loss);background:#FEF2F2;border:1px solid #FECACA;}
+  .msg.warn{color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;}
   .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
   .who{font-size:12px;color:var(--muted);}
   .logout{font-size:12px;color:var(--accent);background:none;border:0;cursor:pointer;font-weight:600;}
@@ -76,292 +66,298 @@
   .rpct{font-size:28px;font-weight:800;letter-spacing:-.02em;}
   .gain{color:var(--gain);} .loss{color:var(--loss);}
   .rfoot{font-size:12px;color:var(--muted);text-align:right;margin-top:6px;}
+  .statline{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line);}
+  .statline:last-child{border-bottom:0;}
+  .stk{font-size:13px;color:var(--muted);} .sv{font-size:16px;font-weight:800;}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:middle;}
+  .legend{display:flex;gap:16px;justify-content:center;margin-top:8px;font-size:12px;color:var(--muted);}
 </style>
 </head>
 <body>
-<div class="wrap" id="root">
-  <div class="empty">Ładowanie…</div>
-</div>
-
+<div class="wrap" id="root"><div class="empty">Ładowanie…</div></div>
 <script>
 const $ = (id) => document.getElementById(id);
-let sb = null;
-let session = null;
-let allTx = [];
-let activeTab = "tx";
-let chart = null;
-let selectedTicker = null;
-const priceCache = {}; // symbol|country -> [{date,close}]
+let sb=null, session=null, allTx=[], activeTab="pf", chart=null, selectedTicker=null;
+const priceCache={}, fxCache={};
 
-function configOk(){
-  return window.SUPABASE_URL && window.SUPABASE_ANON_KEY
-    && window.SUPABASE_URL.indexOf("WKLEJ") < 0
-    && window.SUPABASE_ANON_KEY.indexOf("WKLEJ") < 0;
-}
+function configOk(){ return window.SUPABASE_URL && window.SUPABASE_ANON_KEY
+  && window.SUPABASE_URL.indexOf("WKLEJ")<0 && window.SUPABASE_ANON_KEY.indexOf("WKLEJ")<0; }
 
 function init(){
   if(!configOk()){
-    $("root").innerHTML =
-      '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
-      '<div class="card" style="margin-top:14px"><div class="msg err">Brak konfiguracji Supabase. '+
-      'Uzupełnij plik <strong>config.js</strong> zgodnie z instrukcją.</div></div>';
+    $("root").innerHTML='<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
+      '<div class="card" style="margin-top:14px"><div class="msg err">Brak konfiguracji Supabase. Uzupełnij plik <strong>config.js</strong>.</div></div>';
     return;
   }
-  sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
-  sb.auth.getSession().then(({data})=>{
-    session = data.session;
-    sb.auth.onAuthStateChange((_e, s)=>{ session = s; route(); });
-    route();
-  });
+  sb=window.supabase.createClient(window.SUPABASE_URL,window.SUPABASE_ANON_KEY);
+  sb.auth.getSession().then(({data})=>{ session=data.session;
+    sb.auth.onAuthStateChange((_e,s)=>{ session=s; route(); }); route(); });
 }
+function route(){ if(session&&session.user) renderApp(); else renderLogin(); }
 
-function route(){
-  if(session && session.user) renderApp();
-  else renderLogin();
-}
-
-/* ---------- LOGOWANIE e-mail + hasło ---------- */
+/* ---------- LOGOWANIE ---------- */
 function renderLogin(){
-  $("root").innerHTML =
-    '<div class="center">'+
-      '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
-      '<p class="sub">Zaloguj się hasłem — te same dane na telefonie i komputerze.</p>'+
-      '<div class="card">'+
-        '<span class="pill">Logowanie e-mail + hasło</span>'+
-        '<label class="f">E-mail</label>'+
-        '<input id="email" type="email" inputmode="email" autocomplete="email" placeholder="ty@example.com"/>'+
-        '<label class="f" style="margin-top:10px">Hasło</label>'+
-        '<input id="password" type="password" autocomplete="current-password" placeholder="min. 6 znaków"/>'+
-        '<button class="primary" id="loginBtn" style="margin-top:14px">Zaloguj</button>'+
-        '<button class="secondary" id="signupBtn">Utwórz konto (pierwszy raz)</button>'+
-        '<div id="loginMsg"></div>'+
-        '<div class="hint">Zapisz hasło w menedżerze haseł — nie będzie wysyłany żaden e-mail.</div>'+
-      '</div>'+
-    '</div>';
-  $("loginBtn").onclick = doLogin;
-  $("signupBtn").onclick = doSignup;
-  $("password").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
+  $("root").innerHTML='<div class="center"><div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
+    '<p class="sub">Zaloguj się hasłem — te same dane na telefonie i komputerze.</p>'+
+    '<div class="card"><span class="pill">Logowanie e-mail + hasło</span>'+
+    '<label class="f">E-mail</label><input id="email" type="email" inputmode="email" autocomplete="email" placeholder="ty@example.com"/>'+
+    '<label class="f" style="margin-top:10px">Hasło</label><input id="password" type="password" autocomplete="current-password" placeholder="min. 6 znaków"/>'+
+    '<button class="primary" id="loginBtn" style="margin-top:14px">Zaloguj</button>'+
+    '<button class="secondary" id="signupBtn">Utwórz konto (pierwszy raz)</button>'+
+    '<div id="loginMsg"></div><div class="hint">Zapisz hasło w menedżerze haseł — nie wysyłamy żadnych e-maili.</div></div></div>';
+  $("loginBtn").onclick=doLogin; $("signupBtn").onclick=doSignup;
+  $("password").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 }
-function creds(){ return { email: $("email").value.trim(), password: $("password").value }; }
+function creds(){ return { email:$("email").value.trim(), password:$("password").value }; }
 async function doLogin(){
-  const { email, password } = creds(); const msg = $("loginMsg");
-  if(!email || !password){ msg.innerHTML = '<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
-  const btn = $("loginBtn"); btn.disabled = true; btn.textContent = "Loguję…";
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-  btn.disabled = false; btn.textContent = "Zaloguj";
-  if(error) msg.innerHTML = '<div class="msg err">Niepoprawny e-mail lub hasło. Jeśli pierwszy raz — kliknij „Utwórz konto”.</div>';
+  const {email,password}=creds(); const msg=$("loginMsg");
+  if(!email||!password){ msg.innerHTML='<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
+  const btn=$("loginBtn"); btn.disabled=true; btn.textContent="Loguję…";
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  btn.disabled=false; btn.textContent="Zaloguj";
+  if(error) msg.innerHTML='<div class="msg err">Niepoprawny e-mail lub hasło. Pierwszy raz? Kliknij „Utwórz konto”.</div>';
 }
 async function doSignup(){
-  const { email, password } = creds(); const msg = $("loginMsg");
-  if(!email || !password){ msg.innerHTML = '<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
-  if(password.length < 6){ msg.innerHTML = '<div class="msg err">Hasło musi mieć min. 6 znaków.</div>'; return; }
-  const btn = $("signupBtn"); btn.disabled = true; btn.textContent = "Tworzę…";
-  const { data, error } = await sb.auth.signUp({ email, password });
-  btn.disabled = false; btn.textContent = "Utwórz konto (pierwszy raz)";
-  if(error){
-    let m = error.message;
-    if(/already registered|already exists/i.test(m)) m = "Konto z tym e-mailem już istnieje — kliknij „Zaloguj”.";
-    msg.innerHTML = '<div class="msg err">'+m+'</div>'; return;
-  }
-  if(!data.session) msg.innerHTML = '<div class="msg err">Wyłącz „Confirm email” w Supabase (Authentication → Email), potem zaloguj się.</div>';
+  const {email,password}=creds(); const msg=$("loginMsg");
+  if(!email||!password){ msg.innerHTML='<div class="msg err">Podaj e-mail i hasło.</div>'; return; }
+  if(password.length<6){ msg.innerHTML='<div class="msg err">Hasło min. 6 znaków.</div>'; return; }
+  const btn=$("signupBtn"); btn.disabled=true; btn.textContent="Tworzę…";
+  const {data,error}=await sb.auth.signUp({email,password});
+  btn.disabled=false; btn.textContent="Utwórz konto (pierwszy raz)";
+  if(error){ let m=error.message; if(/already/i.test(m)) m="Konto już istnieje — kliknij „Zaloguj”."; msg.innerHTML='<div class="msg err">'+m+'</div>'; return; }
+  if(!data.session) msg.innerHTML='<div class="msg err">Wyłącz „Confirm email” w Supabase, potem zaloguj się.</div>';
 }
 
-/* ---------- APLIKACJA ---------- */
+/* ---------- SHELL ---------- */
 function renderApp(){
-  $("root").innerHTML =
-    '<div class="topbar">'+
-      '<div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
-      '<div style="text-align:right"><div class="who">'+session.user.email+'</div>'+
-      '<button class="logout" id="logoutBtn">Wyloguj</button></div>'+
-    '</div>'+
-    '<div class="tabs">'+
-      '<button id="tab_tx">Transakcje</button>'+
-      '<button id="tab_ch">Zwroty</button>'+
-    '</div>'+
+  $("root").innerHTML='<div class="topbar"><div class="brand"><img src="/icon-192.png" alt=""/><h1>Portfel</h1></div>'+
+    '<div style="text-align:right"><div class="who">'+session.user.email+'</div><button class="logout" id="logoutBtn">Wyloguj</button></div></div>'+
+    '<div class="tabs"><button id="tab_pf">Portfel</button><button id="tab_ch">Zwroty</button><button id="tab_tx">Transakcje</button></div>'+
     '<div id="content"></div>';
-  $("logoutBtn").onclick = ()=> sb.auth.signOut();
-  $("tab_tx").onclick = ()=>{ activeTab="tx"; renderTab(); };
-  $("tab_ch").onclick = ()=>{ activeTab="ch"; renderTab(); };
+  $("logoutBtn").onclick=()=>sb.auth.signOut();
+  $("tab_pf").onclick=()=>{ activeTab="pf"; renderTab(); };
+  $("tab_ch").onclick=()=>{ activeTab="ch"; renderTab(); };
+  $("tab_tx").onclick=()=>{ activeTab="tx"; renderTab(); };
   fetchTx().then(renderTab);
 }
-
 function renderTab(){
-  $("tab_tx").className = activeTab==="tx" ? "active" : "";
-  $("tab_ch").className = activeTab==="ch" ? "active" : "";
-  if(activeTab==="tx") renderTxView(); else renderChartView();
+  $("tab_pf").className=activeTab==="pf"?"active":"";
+  $("tab_ch").className=activeTab==="ch"?"active":"";
+  $("tab_tx").className=activeTab==="tx"?"active":"";
+  if(chart){ chart.destroy(); chart=null; }
+  if(activeTab==="pf") renderPortfolioView();
+  else if(activeTab==="ch") renderChartView();
+  else renderTxView();
 }
-
 async function fetchTx(){
-  const { data, error } = await sb.from("transactions")
-    .select("*").order("date",{ascending:false}).order("created_at",{ascending:false});
-  allTx = (!error && data) ? data : [];
-  return allTx;
+  const {data,error}=await sb.from("transactions").select("*").order("date",{ascending:false}).order("created_at",{ascending:false});
+  allTx=(!error&&data)?data:[]; return allTx;
 }
 
-/* ----- widok TRANSAKCJE ----- */
-function renderTxView(){
-  $("content").innerHTML =
-    '<p class="sub">Dodaj transakcję — zapisze się w chmurze i pojawi na każdym Twoim urządzeniu.</p>'+
-    '<div class="card">'+
-      '<div class="grid">'+
-        '<div><label class="f">Ticker</label><input id="t_ticker" placeholder="np. CRWD" autocapitalize="characters"/></div>'+
-        '<div><label class="f">Kraj</label><select id="t_country"><option>US</option><option>PL</option></select></div>'+
-        '<div><label class="f">Typ</label><select id="t_type"><option value="buy">Kup</option><option value="sell">Sprzedaj</option></select></div>'+
-      '</div>'+
-      '<div class="grid2">'+
-        '<div><label class="f">Data</label><input id="t_date" type="date"/></div>'+
-        '<div><label class="f">Ilość</label><input id="t_qty" type="number" inputmode="decimal" placeholder="np. 1"/></div>'+
-      '</div>'+
-      '<div class="grid2">'+
-        '<div><label class="f">Cena (opcjonalnie)</label><input id="t_price" type="number" inputmode="decimal" placeholder="np. 250"/></div>'+
-        '<div style="display:flex;align-items:flex-end"><button class="primary" id="addBtn">Dodaj transakcję</button></div>'+
-      '</div>'+
-      '<div id="addMsg"></div>'+
-    '</div>'+
-    '<div class="card" style="margin-top:14px">'+
-      '<label class="f" style="margin-bottom:10px">Twoje transakcje (z chmury)</label>'+
-      '<div id="txList"></div>'+
-    '</div>';
-  $("addBtn").onclick = addTx;
-  drawTxList();
+/* ---------- helpers ---------- */
+function lastBusinessDay(){ const d=new Date(); d.setDate(d.getDate()-1);
+  while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+function dmap(series){ const m={}; series.forEach(p=> m[p.date]=p.close); return m; }
+function onOrBefore(map,date){ if(map[date]!=null) return map[date];
+  let d=new Date(date+"T12:00:00Z"); for(let i=0;i<10;i++){ d.setDate(d.getDate()-1);
+    const k=d.toISOString().slice(0,10); if(map[k]!=null) return map[k]; } return null; }
+function fmtPLN(v){ return Math.round(v).toLocaleString("pl-PL")+" zł"; }
+function fmtPct(v){ return (v>=0?"+":"")+v.toFixed(2)+"%"; }
+async function fetchSeries(ticker,country){
+  const key=ticker+"|"+country; if(priceCache[key]) return priceCache[key];
+  const r=await fetch("/api/prices?symbol="+encodeURIComponent(ticker)+"&country="+encodeURIComponent(country));
+  const data=await r.json(); if(!r.ok||data.error) throw new Error(data.error||("HTTP "+r.status));
+  priceCache[key]=data.prices; return data.prices;
 }
-
-function drawTxList(){
-  const box = $("txList");
-  if(!allTx.length){ box.innerHTML = '<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; return; }
-  box.innerHTML = allTx.map(tx=>{
-    const isBuy = tx.type === "buy";
-    const c = isBuy ? "#16A34A" : "#DC2626";
-    const t = isBuy ? "KUP" : "SPR";
-    const det = [ tx.qty!=null ? tx.qty+" szt" : null, tx.price!=null ? "@ "+tx.price : null ].filter(Boolean).join(" · ");
-    return '<div class="row"><div><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+
-      '<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span></div>'+
-      '<div class="meta">'+tx.date+(det?" · "+det:"")+'</div></div>'+
-      '<span class="x" data-id="'+tx.id+'">✕</span></div>';
-  }).join("");
-  box.querySelectorAll(".x").forEach(el=> el.onclick = ()=> delTx(el.getAttribute("data-id")));
+async function fetchFx(start,end){
+  const key=start+"|"+end; if(fxCache[key]) return fxCache[key];
+  const r=await fetch("/api/fx?start="+start+"&end="+end);
+  const data=await r.json(); if(!r.ok||data.error) throw new Error(data.error||("HTTP "+r.status));
+  fxCache[key]=data.rates; return data.rates;
 }
-
-async function addTx(){
-  const msg = $("addMsg");
-  const ticker = $("t_ticker").value.trim().toUpperCase();
-  const country = $("t_country").value;
-  const type = $("t_type").value;
-  const date = $("t_date").value;
-  const qty = $("t_qty").value ? parseFloat($("t_qty").value) : null;
-  const price = $("t_price").value ? parseFloat($("t_price").value) : null;
-  if(!ticker){ msg.innerHTML = '<div class="msg err">Podaj ticker.</div>'; return; }
-  if(!date){ msg.innerHTML = '<div class="msg err">Podaj datę.</div>'; return; }
-  const btn = $("addBtn"); btn.disabled = true; btn.textContent = "Zapisuję…";
-  const { error } = await sb.from("transactions").insert({ date, country, type, ticker, qty, price });
-  btn.disabled = false; btn.textContent = "Dodaj transakcję";
-  if(error){ msg.innerHTML = '<div class="msg err">Błąd zapisu: '+error.message+'</div>'; return; }
-  msg.innerHTML = '<div class="msg ok">Zapisano w chmurze.</div>';
-  $("t_ticker").value=""; $("t_qty").value=""; $("t_price").value="";
-  setTimeout(()=>{ msg.innerHTML=""; }, 2000);
-  await fetchTx(); drawTxList();
-}
-
-async function delTx(id){
-  await sb.from("transactions").delete().eq("id", id);
-  await fetchTx(); drawTxList();
-}
-
-/* ----- widok ZWROTY (wykres per spółka) ----- */
 function uniqueTickers(){
-  const m = {};
-  allTx.forEach(tx=>{
-    if(!tx.ticker) return;
-    const key = tx.ticker+"|"+(tx.country||"US");
-    const price = (tx.price!=null) ? tx.price : null;
-    if(!m[key]) m[key] = { ticker:tx.ticker, country:tx.country||"US", firstDate:tx.date, buyPrice:price };
-    else if(tx.date < m[key].firstDate){ m[key].firstDate = tx.date; m[key].buyPrice = price; }
+  const m={}; allTx.forEach(tx=>{ if(!tx.ticker) return;
+    const key=tx.ticker+"|"+(tx.country||"US"); const price=(tx.price!=null)?tx.price:null;
+    if(!m[key]) m[key]={ ticker:tx.ticker, country:tx.country||"US", firstDate:tx.date, buyPrice:price };
+    else if(tx.date<m[key].firstDate){ m[key].firstDate=tx.date; m[key].buyPrice=price; }
   });
   return Object.values(m).sort((a,b)=> a.ticker.localeCompare(b.ticker));
 }
 
-function renderChartView(){
-  const tickers = uniqueTickers();
-  if(!tickers.length){
-    $("content").innerHTML = '<div class="card"><div class="empty">Dodaj najpierw transakcje, aby zobaczyć zwroty.</div></div>';
-    return;
+/* ---------- PORTFEL vs NASDAQ ---------- */
+function computePF(txs, series, qqq, fx, axis){
+  const pos={}; const out=[]; const sorted=txs.slice().sort((a,b)=> a.date<b.date?-1:1); let bi=0;
+  for(const date of axis){
+    while(bi<sorted.length && sorted[bi].date<=date){
+      const tx=sorted[bi]; bi++; if(!tx.ticker) continue;
+      const key=tx.ticker+"|"+(tx.country||"US");
+      if(!pos[key]) pos[key]={ qty:0, costPLN:0, qqqShares:0, country:tx.country||"US" };
+      const p=pos[key];
+      if(tx.type==="sell"){
+        if(p.qty>0){ const frac=Math.min(1,(tx.qty||0)/p.qty); p.costPLN*=(1-frac); p.qqqShares*=(1-frac); p.qty-=(tx.qty||0); if(p.qty<0)p.qty=0; }
+      } else {
+        const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date);
+        const fxBuy=onOrBefore(fx,tx.date)||4.0;
+        const amtPLN=(tx.country==="PL")?(tx.qty*(px||0)):(tx.qty*(px||0)*fxBuy);
+        const amtUSD=(tx.country==="PL")?(px? tx.qty*px/fxBuy:0):(tx.qty*(px||0));
+        p.qty+=tx.qty||0; p.costPLN+=amtPLN;
+        const qpx=onOrBefore(qqq,tx.date); if(qpx) p.qqqShares+=amtUSD/qpx;
+      }
+    }
+    let invested=0,qqqShares=0,val=0; const fxN=onOrBefore(fx,date)||4.0;
+    for(const k in pos){ const p=pos[k]; invested+=p.costPLN; qqqShares+=p.qqqShares;
+      if(p.qty>1e-9){ const cls=onOrBefore(series[k],date); if(cls!=null) val+=(p.country==="PL")?p.qty*cls:p.qty*cls*fxN; } }
+    if(invested<=0) continue;
+    const qN=onOrBefore(qqq,date); const benchVal=qN?qqqShares*qN*fxN:0;
+    out.push({ date, invested, port:val, bench:benchVal });
   }
-  if(!selectedTicker || !tickers.find(t=> (t.ticker+"|"+t.country)===selectedTicker))
-    selectedTicker = tickers[0].ticker+"|"+tickers[0].country;
-  $("content").innerHTML =
-    '<p class="sub">Zwrot od dnia pierwszego zakupu do ostatniej sesji (od 0%). Wybierz spółkę:</p>'+
-    '<div class="chips" id="chips"></div>'+
-    '<div class="card" id="chartCard"><div class="empty">Wybierz spółkę…</div></div>';
-  const chips = $("chips");
-  chips.innerHTML = tickers.map(t=>{
-    const key = t.ticker+"|"+t.country;
-    return '<div class="chip'+(key===selectedTicker?" active":"")+'" data-key="'+key+'">'+t.ticker+' · '+t.country+'</div>';
-  }).join("");
-  chips.querySelectorAll(".chip").forEach(el=>{
-    el.onclick = ()=>{ selectedTicker = el.getAttribute("data-key"); renderChartView(); };
+  return out;
+}
+async function buildPortfolio(){
+  const tickers=uniqueTickers(); if(!tickers.length) return null;
+  const sorted=allTx.slice().sort((a,b)=> a.date<b.date?-1:1);
+  const firstDate=sorted[0].date; const end=lastBusinessDay();
+  const series={}; const failed=[];
+  for(const t of tickers){ try{ series[t.ticker+"|"+t.country]=dmap(await fetchSeries(t.ticker,t.country)); }catch(e){ failed.push(t.ticker); } }
+  let qqq; try{ qqq=dmap(await fetchSeries("QQQ","US")); }catch(e){ throw new Error("Nie udało się pobrać danych Nasdaq (QQQ)."); }
+  let fx; try{ fx=await fetchFx(firstDate,end); }catch(e){ throw new Error("Nie udało się pobrać kursu USD/PLN (NBP)."); }
+  const axis=Object.keys(qqq).filter(d=> d>=firstDate && d<=end).sort();
+  if(axis.length<3) throw new Error("Za mało danych do wykresu.");
+  const pts=computePF(allTx, series, qqq, fx, axis);
+  if(!pts.length) throw new Error("Brak danych w zakresie.");
+  return { pts, failed };
+}
+function renderPortfolioView(){
+  if(!allTx.length){ $("content").innerHTML='<div class="card"><div class="empty">Dodaj transakcje, aby porównać portfel z Nasdaq 100.</div></div>'; return; }
+  $("content").innerHTML='<div class="card"><div class="empty">Liczę portfel i pobieram Nasdaq + kurs USD/PLN…</div></div>';
+  buildPortfolio().then(res=>{
+    const pts=res.pts; const last=pts[pts.length-1];
+    const invested=last.invested, port=last.port, bench=last.bench;
+    const portPct=invested>0?(port/invested-1)*100:0;
+    const benchPct=invested>0?(bench/invested-1)*100:0;
+    const edge=port-bench; const alpha=portPct-benchPct; const ahead=edge>=0;
+    let warn = res.failed.length ? '<div class="msg warn">Nie pobrano danych dla: '+res.failed.join(", ")+' — te spółki nie są wliczone.</div>' : '';
+    $("content").innerHTML=
+      '<div class="card" style="margin-bottom:14px">'+
+        '<div class="rhead"><div><div class="meta">TWÓJ PORTFEL vs NASDAQ 100</div>'+
+        '<div class="tk" style="font-size:17px">Przewaga: <span class="'+(ahead?"gain":"loss")+'">'+(ahead?"+":"")+fmtPLN(edge)+'</span></div></div>'+
+        '<div class="rpct '+(ahead?"gain":"loss")+'">'+(alpha>=0?"+":"")+alpha.toFixed(2)+' pp</div></div>'+
+        '<div class="statline"><span class="stk"><span class="dot" style="background:var(--accent)"></span>Twój portfel</span>'+
+          '<span class="sv">'+fmtPLN(port)+' <span class="'+(portPct>=0?"gain":"loss")+'" style="font-size:13px">'+fmtPct(portPct)+'</span></span></div>'+
+        '<div class="statline"><span class="stk"><span class="dot" style="background:var(--bench)"></span>Nasdaq 100 (te same wpłaty)</span>'+
+          '<span class="sv">'+fmtPLN(bench)+' <span class="'+(benchPct>=0?"gain":"loss")+'" style="font-size:13px">'+fmtPct(benchPct)+'</span></span></div>'+
+        '<div class="statline"><span class="stk">Zainwestowane łącznie</span><span class="sv" style="font-weight:700">'+fmtPLN(invested)+'</span></div>'+
+        warn+
+      '</div>'+
+      '<div class="card"><div class="meta" style="margin-bottom:8px">WARTOŚĆ W CZASIE (PLN)</div>'+
+        '<canvas id="pfChart" height="160"></canvas>'+
+        '<div class="legend"><span><span class="dot" style="background:var(--accent)"></span>Twój portfel</span>'+
+        '<span><span class="dot" style="background:var(--bench)"></span>Nasdaq 100</span></div></div>';
+    drawPFChart(pts);
+  }).catch(e=>{
+    $("content").innerHTML='<div class="card"><div class="msg err">'+e.message+'</div></div>';
   });
+}
+function drawPFChart(pts){
+  if(chart){ chart.destroy(); chart=null; }
+  const ctx=$("pfChart").getContext("2d");
+  chart=new Chart(ctx,{ type:"line",
+    data:{ labels:pts.map(p=>p.date), datasets:[
+      { label:"Twój portfel", data:pts.map(p=>Math.round(p.port)), borderColor:"#2563EB", borderWidth:2, pointRadius:0, tension:0.12 },
+      { label:"Nasdaq 100", data:pts.map(p=>Math.round(p.bench)), borderColor:"#F59E0B", borderWidth:2, pointRadius:0, tension:0.12 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:true, interaction:{mode:"index",intersect:false},
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=> c.dataset.label+": "+c.parsed.y.toLocaleString("pl-PL")+" zł" } } },
+      scales:{ x:{ ticks:{ maxTicksLimit:6, font:{size:10}, color:"#94A3B8" }, grid:{display:false} },
+        y:{ ticks:{ callback:v=> (v/1000).toFixed(0)+"k", font:{size:10}, color:"#94A3B8" }, grid:{color:"#EEF1F5"} } } }
+  });
+}
+
+/* ---------- ZWROTY (per spółka) ---------- */
+function renderChartView(){
+  const tickers=uniqueTickers();
+  if(!tickers.length){ $("content").innerHTML='<div class="card"><div class="empty">Dodaj najpierw transakcje.</div></div>'; return; }
+  if(!selectedTicker || !tickers.find(t=> (t.ticker+"|"+t.country)===selectedTicker)) selectedTicker=tickers[0].ticker+"|"+tickers[0].country;
+  $("content").innerHTML='<p class="sub">Zwrot od ceny zakupu do ostatniej sesji. Wybierz spółkę:</p>'+
+    '<div class="chips" id="chips"></div><div class="card" id="chartCard"><div class="empty">Wybierz spółkę…</div></div>';
+  const chips=$("chips");
+  chips.innerHTML=tickers.map(t=>{ const key=t.ticker+"|"+t.country;
+    return '<div class="chip'+(key===selectedTicker?" active":"")+'" data-key="'+key+'">'+t.ticker+' · '+t.country+'</div>'; }).join("");
+  chips.querySelectorAll(".chip").forEach(el=> el.onclick=()=>{ selectedTicker=el.getAttribute("data-key"); renderChartView(); });
   loadChart(tickers.find(t=> (t.ticker+"|"+t.country)===selectedTicker));
 }
-
-function lastBusinessDay(){
-  const d = new Date(); d.setDate(d.getDate()-1);
-  while(d.getDay()===0 || d.getDay()===6) d.setDate(d.getDate()-1);
-  return d.toISOString().slice(0,10);
-}
-
-async function fetchSeries(ticker, country){
-  const key = ticker+"|"+country;
-  if(priceCache[key]) return priceCache[key];
-  const r = await fetch("/api/prices?symbol="+encodeURIComponent(ticker)+"&country="+encodeURIComponent(country));
-  const data = await r.json();
-  if(!r.ok || data.error) throw new Error(data.error || ("HTTP "+r.status));
-  priceCache[key] = data.prices;
-  return data.prices;
-}
-
 async function loadChart(t){
-  const card = $("chartCard");
-  card.innerHTML = '<div class="empty">Pobieram kursy '+t.ticker+'…</div>';
+  const card=$("chartCard"); card.innerHTML='<div class="empty">Pobieram kursy '+t.ticker+'…</div>';
   try{
-    const series = await fetchSeries(t.ticker, t.country);
-    const end = lastBusinessDay();
-    const range = series.filter(p=> p.date >= t.firstDate && p.date <= end);
+    const series=await fetchSeries(t.ticker,t.country); const end=lastBusinessDay();
+    const range=series.filter(p=> p.date>=t.firstDate && p.date<=end);
     if(!range.length) throw new Error("Brak danych od daty zakupu ("+t.firstDate+") do dziś.");
-    const usePrice = (t.buyPrice!=null && t.buyPrice>0);
-    const base = usePrice ? t.buyPrice : range[0].close;
-    const baseLabel = usePrice ? ("cena zakupu "+t.buyPrice) : "kurs zamknięcia";
-    const pts = range.map(p=> ({ date:p.date, pct:(p.close-base)/base*100, close:p.close }));
-    const last = pts[pts.length-1];
-    const isProfit = last.pct >= 0;
-    card.innerHTML =
-      '<div class="rhead"><div><div class="tk" style="font-size:17px">'+t.ticker+'</div>'+
+    const usePrice=(t.buyPrice!=null && t.buyPrice>0);
+    const base=usePrice?t.buyPrice:range[0].close;
+    const baseLabel=usePrice?("cena zakupu "+t.buyPrice):"kurs zamknięcia";
+    const pts=range.map(p=> ({ date:p.date, pct:(p.close-base)/base*100, close:p.close }));
+    const last=pts[pts.length-1]; const isProfit=last.pct>=0;
+    card.innerHTML='<div class="rhead"><div><div class="tk" style="font-size:17px">'+t.ticker+'</div>'+
       '<div class="meta">od '+t.firstDate+' · baza: '+baseLabel+' · '+pts.length+' sesji</div></div>'+
       '<div class="rpct '+(isProfit?"gain":"loss")+'">'+(isProfit?"+":"")+last.pct.toFixed(2)+'%</div></div>'+
       '<canvas id="chart" height="150"></canvas>'+
       '<div class="rfoot">Ostatni kurs zamknięcia: <strong>'+last.close.toFixed(2)+'</strong></div>';
-    drawChart(pts, isProfit);
-  }catch(e){
-    card.innerHTML = '<div class="msg err">'+e.message+'</div>';
-  }
+    drawChart(pts,isProfit);
+  }catch(e){ card.innerHTML='<div class="msg err">'+e.message+'</div>'; }
 }
-
-function drawChart(pts, isProfit){
+function drawChart(pts,isProfit){
   if(chart){ chart.destroy(); chart=null; }
-  const ctx = $("chart").getContext("2d");
-  const color = isProfit ? "#16A34A" : "#DC2626";
-  chart = new Chart(ctx, {
-    type:"line",
-    data:{ labels: pts.map(p=>p.date), datasets:[{ data: pts.map(p=>p.pct), borderColor:color, borderWidth:2, pointRadius:0, tension:0.15 }] },
-    options:{
-      responsive:true, maintainAspectRatio:true,
+  const ctx=$("chart").getContext("2d"); const color=isProfit?"#16A34A":"#DC2626";
+  chart=new Chart(ctx,{ type:"line",
+    data:{ labels:pts.map(p=>p.date), datasets:[{ data:pts.map(p=>p.pct), borderColor:color, borderWidth:2, pointRadius:0, tension:0.15 }] },
+    options:{ responsive:true, maintainAspectRatio:true,
       plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:c=> "Zwrot: "+c.parsed.y.toFixed(2)+"%" } } },
-      scales:{
-        x:{ ticks:{ maxTicksLimit:6, font:{size:10}, color:"#94A3B8" }, grid:{display:false} },
-        y:{ ticks:{ callback:v=> v.toFixed(0)+"%", font:{size:10}, color:"#94A3B8" }, grid:{color:"#EEF1F5"} }
-      }
-    }
+      scales:{ x:{ ticks:{ maxTicksLimit:6, font:{size:10}, color:"#94A3B8" }, grid:{display:false} },
+        y:{ ticks:{ callback:v=> v.toFixed(0)+"%", font:{size:10}, color:"#94A3B8" }, grid:{color:"#EEF1F5"} } } }
   });
 }
+
+/* ---------- TRANSAKCJE ---------- */
+function renderTxView(){
+  $("content").innerHTML='<p class="sub">Dodaj transakcję — zapisze się w chmurze i pojawi na każdym urządzeniu.</p>'+
+    '<div class="card"><div class="grid">'+
+      '<div><label class="f">Ticker</label><input id="t_ticker" placeholder="np. CRWD" autocapitalize="characters"/></div>'+
+      '<div><label class="f">Kraj</label><select id="t_country"><option>US</option><option>PL</option></select></div>'+
+      '<div><label class="f">Typ</label><select id="t_type"><option value="buy">Kup</option><option value="sell">Sprzedaj</option></select></div></div>'+
+      '<div class="grid2"><div><label class="f">Data</label><input id="t_date" type="date"/></div>'+
+      '<div><label class="f">Ilość</label><input id="t_qty" type="number" inputmode="decimal" placeholder="np. 1"/></div></div>'+
+      '<div class="grid2"><div><label class="f">Cena (opcjonalnie)</label><input id="t_price" type="number" inputmode="decimal" placeholder="np. 250"/></div>'+
+      '<div style="display:flex;align-items:flex-end"><button class="primary" id="addBtn">Dodaj transakcję</button></div></div>'+
+      '<div id="addMsg"></div></div>'+
+    '<div class="card" style="margin-top:14px"><label class="f" style="margin-bottom:10px">Twoje transakcje (z chmury)</label><div id="txList"></div></div>';
+  $("addBtn").onclick=addTx; drawTxList();
+}
+function drawTxList(){
+  const box=$("txList");
+  if(!allTx.length){ box.innerHTML='<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; return; }
+  box.innerHTML=allTx.map(tx=>{ const isBuy=tx.type==="buy"; const c=isBuy?"#16A34A":"#DC2626"; const t=isBuy?"KUP":"SPR";
+    const det=[ tx.qty!=null?tx.qty+" szt":null, tx.price!=null?"@ "+tx.price:null ].filter(Boolean).join(" · ");
+    return '<div class="row"><div><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+
+      '<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span></div>'+
+      '<div class="meta">'+tx.date+(det?" · "+det:"")+'</div></div><span class="x" data-id="'+tx.id+'">✕</span></div>'; }).join("");
+  box.querySelectorAll(".x").forEach(el=> el.onclick=()=> delTx(el.getAttribute("data-id")));
+}
+async function addTx(){
+  const msg=$("addMsg");
+  const ticker=$("t_ticker").value.trim().toUpperCase(), country=$("t_country").value, type=$("t_type").value, date=$("t_date").value;
+  const qty=$("t_qty").value?parseFloat($("t_qty").value):null, price=$("t_price").value?parseFloat($("t_price").value):null;
+  if(!ticker){ msg.innerHTML='<div class="msg err">Podaj ticker.</div>'; return; }
+  if(!date){ msg.innerHTML='<div class="msg err">Podaj datę.</div>'; return; }
+  const btn=$("addBtn"); btn.disabled=true; btn.textContent="Zapisuję…";
+  const {error}=await sb.from("transactions").insert({ date, country, type, ticker, qty, price });
+  btn.disabled=false; btn.textContent="Dodaj transakcję";
+  if(error){ msg.innerHTML='<div class="msg err">Błąd zapisu: '+error.message+'</div>'; return; }
+  msg.innerHTML='<div class="msg ok">Zapisano w chmurze.</div>';
+  $("t_ticker").value=""; $("t_qty").value=""; $("t_price").value="";
+  setTimeout(()=>{ msg.innerHTML=""; },2000);
+  await fetchTx(); drawTxList();
+}
+async function delTx(id){ await sb.from("transactions").delete().eq("id",id); await fetchTx(); drawTxList(); }
 
 init();
 </script>
