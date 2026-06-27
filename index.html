@@ -199,40 +199,46 @@ function uniqueTickers(){
 
 /* ---------- PORTFEL vs NASDAQ ---------- */
 function computePF(txs, series, qqq, fx, axis){
-  const pos={}; const out=[]; const sorted=txs.slice().sort((a,b)=> a.date<b.date?-1:1); let bi=0;
-  for(const date of axis){
-    let cfStep=0;
-    while(bi<sorted.length && sorted[bi].date<=date){
-      const tx=sorted[bi]; bi++; if(!tx.ticker) continue;
-      const key=tx.ticker+"|"+(tx.country||"US");
-      if(!pos[key]) pos[key]={ qty:0, costPLN:0, qqqShares:0, country:tx.country||"US" };
-      const p=pos[key];
-      if(tx.type==="sell"){
-        const cls0=onOrBefore(series[key],tx.date); const smv=(cls0!=null)?cls0:(tx.price||0);
-        const fxS=onOrBefore(fx,tx.date)||4.0;
-        cfStep-=(tx.country==="PL")?(tx.qty*smv):(tx.qty*smv*fxS);
-        if(p.qty>0){ const frac=Math.min(1,(tx.qty||0)/p.qty); p.costPLN*=(1-frac); p.qqqShares*=(1-frac); p.qty-=(tx.qty||0); if(p.qty<0)p.qty=0; }
-      } else {
-        const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date);
-        const fxBuy=onOrBefore(fx,tx.date)||4.0;
-        const cls0=onOrBefore(series[key],tx.date); const mv=(cls0!=null)?cls0:(px||0);
-        const amtPLN=(tx.country==="PL")?(tx.qty*(px||0)):(tx.qty*(px||0)*fxBuy);
-        const amtUSD=(tx.country==="PL")?(px? tx.qty*px/fxBuy:0):(tx.qty*(px||0));
-        cfStep+=(tx.country==="PL")?(tx.qty*mv):(tx.qty*mv*fxBuy);
-        p.qty+=tx.qty||0; p.costPLN+=amtPLN;
-        const qpx=onOrBefore(qqq,tx.date); if(qpx) p.qqqShares+=amtUSD/qpx;
+  const hasDep = txs.some(t=> t.type==="deposit" || t.type==="withdraw");
+  const pos={}; let cashPLN=0, qqqShares=0, netDep=0; const out=[]; const flows=[];
+  const sorted=txs.slice().sort((a,b)=> a.date<b.date?-1:1); let bi=0;
+  for(const date of axis){ let cfStep=0;
+    while(bi<sorted.length && sorted[bi].date<=date){ const tx=sorted[bi]; bi++;
+      const fxD=onOrBefore(fx,tx.date)||4.0; const qpx=onOrBefore(qqq,tx.date);
+      if(tx.type==="deposit"){
+        const dPLN=(tx.amount_pln!=null)?tx.amount_pln:(tx.amount_usd!=null?tx.amount_usd*fxD:0);
+        const dUSD=(tx.amount_usd!=null)?tx.amount_usd:(tx.amount_pln!=null?tx.amount_pln/fxD:0);
+        cashPLN+=dPLN; netDep+=dPLN; cfStep+=dPLN; flows.push({date:tx.date,amt:-dPLN});
+        if(qpx) qqqShares+=dUSD/qpx;
+      } else if(tx.type==="withdraw"){
+        const wPLN=(tx.amount_pln!=null)?tx.amount_pln:(tx.amount_usd!=null?tx.amount_usd*fxD:0);
+        cashPLN-=wPLN; netDep-=wPLN; cfStep-=wPLN; flows.push({date:tx.date,amt:+wPLN});
+        const benchNow=qpx?qqqShares*qpx*fxD:0; if(benchNow>0){ const frac=Math.min(1,wPLN/benchNow); qqqShares*=(1-frac); }
+      } else if(tx.ticker){
+        const key=tx.ticker+"|"+(tx.country||"US"); if(!pos[key]) pos[key]={qty:0,country:tx.country||"US",costPLN:0,qqqShares:0}; const p=pos[key];
+        const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date); const cls0=onOrBefore(series[key],tx.date); const mv=(cls0!=null)?cls0:(px||0);
+        if(tx.type==="sell"){
+          const smvPLN=(tx.country==="PL")?tx.qty*mv:tx.qty*mv*fxD; const procPLN=(tx.country==="PL")?tx.qty*(px||0):tx.qty*(px||0)*fxD;
+          if(p.qty>0){ const frac=Math.min(1,(tx.qty||0)/p.qty); p.costPLN*=(1-frac); p.qqqShares*=(1-frac); p.qty-=(tx.qty||0); if(p.qty<0)p.qty=0; }
+          if(hasDep) cashPLN+=procPLN; else { cfStep-=smvPLN; flows.push({date:tx.date,amt:+procPLN}); }
+        } else {
+          const costPLN=(tx.country==="PL")?tx.qty*(px||0):tx.qty*(px||0)*fxD; const costUSD=(tx.country==="PL")?(px?tx.qty*px/fxD:0):tx.qty*(px||0);
+          p.qty+=tx.qty||0; p.costPLN+=costPLN;
+          if(hasDep) cashPLN-=costPLN; else { cfStep+=(tx.country==="PL")?tx.qty*mv:tx.qty*mv*fxD; flows.push({date:tx.date,amt:-costPLN}); if(qpx) p.qqqShares+=costUSD/qpx; }
+        }
       }
     }
-    let invested=0,qqqShares=0,val=0; const fxN=onOrBefore(fx,date)||4.0;
-    for(const k in pos){ const p=pos[k]; invested+=p.costPLN; qqqShares+=p.qqqShares;
-      if(p.qty>1e-9){ const cls=onOrBefore(series[k],date); if(cls!=null) val+=(p.country==="PL")?p.qty*cls:p.qty*cls*fxN; } }
-    if(invested<=0) continue;
-    const qN=onOrBefore(qqq,date); const benchVal=qN?qqqShares*qN*fxN:0;
-    out.push({ date, invested, port:val, bench:benchVal, cf:cfStep });
+    const fxN=onOrBefore(fx,date)||4.0; let stockVal=0, investedBuys=0, qqqSharesBuy=0;
+    for(const k in pos){ const p=pos[k]; investedBuys+=p.costPLN; qqqSharesBuy+=p.qqqShares;
+      if(p.qty>1e-9){ const cls=onOrBefore(series[k],date); if(cls!=null) stockVal+=(p.country==="PL")?p.qty*cls:p.qty*cls*fxN; } }
+    const qN=onOrBefore(qqq,date); let invested,port,bench,cash;
+    if(hasDep){ invested=netDep; cash=cashPLN; port=stockVal+cashPLN; bench=qN?qqqShares*qN*fxN:0; }
+    else { invested=investedBuys; cash=0; port=stockVal; bench=qN?qqqSharesBuy*qN*fxN:0; }
+    if(invested<=0 && port<=0) continue;
+    out.push({ date, invested, port, bench, cf:cfStep, cash, stock:stockVal });
   }
-  return out;
+  return { pts:out, flows, mode:hasDep };
 }
-function sx0(v){ return v||0; }
 async function buildPortfolio(){
   const tickers=uniqueTickers(); if(!tickers.length) return null;
   const sorted=allTx.slice().sort((a,b)=> a.date<b.date?-1:1);
@@ -243,22 +249,25 @@ async function buildPortfolio(){
   let fx; try{ fx=await fetchFx(firstDate,end); }catch(e){ throw new Error("Nie udało się pobrać kursu USD/PLN (NBP)."); }
   const axis=Object.keys(qqq).filter(d=> d>=firstDate && d<=end).sort();
   if(axis.length<3) throw new Error("Za mało danych do wykresu.");
-  const pts=computePF(allTx, series, qqq, fx, axis);
+  const { pts, flows, mode }=computePF(allTx, series, qqq, fx, axis);
   if(!pts.length) throw new Error("Brak danych w zakresie.");
-  // TWR (skumulowany) — łańcuch dziennych zwrotów z neutralizacją wpłat
+  const last=pts[pts.length-1];
+  // TWR (skumulowany) — łańcuch dziennych zwrotów z neutralizacją przepływów
   let twr=1;
   for(let i=1;i<pts.length;i++){ const den=pts[i-1].port; if(den>0) twr*=(pts[i].port-(pts[i].cf||0))/den; }
   const twrPct=(twr-1)*100;
-  // XIRR (rocznie) — przepływy: zakupy (-), sprzedaże (+), wartość końcowa (+)
-  const last=pts[pts.length-1]; const flows=[];
-  allTx.slice().sort((a,b)=> a.date<b.date?-1:1).forEach(tx=>{ if(!tx.ticker) return;
-    const key=tx.ticker+"|"+(tx.country||"US"); const fxB=onOrBefore(fx,tx.date)||4.0;
-    const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date); if(px==null) return;
-    const amt=(tx.country==="PL")?(tx.qty*px):(tx.qty*px*fxB);
-    flows.push({ date:tx.date, amt: tx.type==="sell"? amt : -amt }); });
-  flows.push({ date:last.date, amt:last.port });
-  const xr=xirr(flows);
-  return { pts, failed, twrPct, xirrPct: xr!=null? xr*100 : null };
+  // XIRR (rocznie) — przepływy zewnętrzne z computePF + wartość końcowa
+  const portFlows=flows.concat([{ date:last.date, amt:last.port }]);
+  const xr=xirr(portFlows);
+  // benchmark TWR = zwrot QQQ w PLN za okres
+  const f0=pts[0].date; const qS=onOrBefore(qqq,f0), qE=onOrBefore(qqq,last.date);
+  const fS=onOrBefore(fx,f0)||4.0, fE=onOrBefore(fx,last.date)||4.0;
+  const benchTwrPct=(qS&&qE)? ((qE*fE)/(qS*fS)-1)*100 : null;
+  // benchmark XIRR = te same przepływy, wartość końcowa = Nasdaq-ekwiwalent
+  const benchFlows=flows.concat([{ date:last.date, amt:last.bench }]);
+  const bx=xirr(benchFlows);
+  return { pts, failed, mode, twrPct, xirrPct: xr!=null? xr*100:null,
+           benchTwrPct, benchXirrPct: bx!=null? bx*100:null };
 }
 function renderPortfolioView(){
   if(!allTx.length){ $("content").innerHTML='<div class="card"><div class="empty">Dodaj transakcje, aby porównać portfel z Nasdaq 100.</div></div>'; return; }
@@ -270,6 +279,9 @@ function renderPortfolioView(){
     const benchPct=invested>0?(bench/invested-1)*100:0;
     const edge=port-bench; const alpha=portPct-benchPct; const ahead=edge>=0;
     const twrPct=res.twrPct; const xirrPct=res.xirrPct;
+    const bTwr=res.benchTwrPct; const bXirr=res.benchXirrPct;
+    const cP=v=>(v>=0?"gain":"loss");
+    const showP=v=> v!=null? fmtPct(v):"—";
     let warn = res.failed.length ? '<div class="msg warn">Nie pobrano danych dla: '+res.failed.join(", ")+' — te spółki nie są wliczone.</div>' : '';
     $("content").innerHTML=
       '<div class="card" style="margin-bottom:14px">'+
@@ -281,8 +293,9 @@ function renderPortfolioView(){
         '<div class="statline"><span class="stk"><span class="dot" style="background:var(--bench)"></span>Nasdaq 100 (te same wpłaty)</span>'+
           '<span class="sv">'+fmtPLN(bench)+' <span class="'+(benchPct>=0?"gain":"loss")+'" style="font-size:13px">'+fmtPct(benchPct)+'</span></span></div>'+
         '<div class="statline"><span class="stk">Zainwestowane łącznie</span><span class="sv" style="font-weight:700">'+fmtPLN(invested)+'</span></div>'+
-        '<div class="statline"><span class="stk">TWR — skumulowany (jakość wyborów)</span><span class="sv" style="font-size:14px"><span class="'+(twrPct>=0?"gain":"loss")+'">'+fmtPct(twrPct)+'</span></span></div>'+
-        '<div class="statline"><span class="stk">XIRR — rocznie (Twój wynik z czasem)</span><span class="sv" style="font-size:14px"><span class="'+((xirrPct!=null&&xirrPct>=0)?"gain":"loss")+'">'+(xirrPct!=null?fmtPct(xirrPct):"—")+'</span></span></div>'+
+        (res.mode && Math.abs(last.cash)>0.5 ? '<div class="statline"><span class="stk">w tym gotówka (nieziwestowana)</span><span class="sv" style="font-size:14px">'+fmtPLN(last.cash)+'</span></div>' : '')+
+        '<div class="statline"><span class="stk">TWR — jakość wyborów (skumul.)</span><span class="sv" style="font-size:13px"><span class="'+cP(twrPct)+'">Ty '+fmtPct(twrPct)+'</span> · <span class="'+cP(bTwr==null?-1:bTwr)+'">QQQ '+showP(bTwr)+'</span></span></div>'+
+        '<div class="statline"><span class="stk">XIRR — rocznie (z timingiem)</span><span class="sv" style="font-size:13px"><span class="'+cP(xirrPct==null?-1:xirrPct)+'">Ty '+showP(xirrPct)+'</span> · <span class="'+cP(bXirr==null?-1:bXirr)+'">QQQ '+showP(bXirr)+'</span></span></div>'+
         warn+
       '</div>'+
       '<div class="card"><div class="meta" style="margin-bottom:8px">WARTOŚĆ W CZASIE (PLN)</div>'+
@@ -354,44 +367,81 @@ function drawChart(pts,isProfit){
 }
 
 /* ---------- TRANSAKCJE ---------- */
+const ACCOUNTS=[["IKE","IKE (PLN)"],["XTB_PLN","XTB PLN"],["XTB_USD","XTB USD"],["IBKR","IBKR"]];
+const ACC_LABEL={IKE:"IKE",XTB_PLN:"XTB PLN",XTB_USD:"XTB USD",IBKR:"IBKR"};
+const ACC_CUR={IKE:"PLN",XTB_PLN:"PLN",XTB_USD:"USD",IBKR:"USD"};
 function renderTxView(){
-  $("content").innerHTML='<p class="sub">Dodaj transakcję — zapisze się w chmurze i pojawi na każdym urządzeniu.</p>'+
-    '<div class="card"><div class="grid">'+
-      '<div><label class="f">Ticker</label><input id="t_ticker" placeholder="np. CRWD" autocapitalize="characters"/></div>'+
-      '<div><label class="f">Kraj</label><select id="t_country"><option>US</option><option>PL</option></select></div>'+
-      '<div><label class="f">Typ</label><select id="t_type"><option value="buy">Kup</option><option value="sell">Sprzedaj</option></select></div></div>'+
+  $("content").innerHTML='<p class="sub">Dodaj transakcję lub wpłatę — zapisze się w chmurze i pojawi na każdym urządzeniu.</p>'+
+    '<div class="card">'+
+      '<div class="grid2">'+
+        '<div><label class="f">Typ</label><select id="t_type"><option value="buy">Kup</option><option value="sell">Sprzedaj</option><option value="deposit">Wpłata</option><option value="withdraw">Wypłata</option></select></div>'+
+        '<div><label class="f">Konto</label><select id="t_account">'+ACCOUNTS.map(a=>'<option value="'+a[0]+'">'+a[1]+'</option>').join("")+'</select></div>'+
+      '</div>'+
+      '<div id="t_fields"></div>'+
+      '<button class="primary" id="addBtn" style="margin-top:12px">Dodaj</button>'+
+      '<div id="addMsg"></div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px"><label class="f" style="margin-bottom:10px">Twoje transakcje (z chmury)</label><div id="txList"></div></div>';
+  $("t_type").onchange=renderTxFields;
+  $("t_account").onchange=()=>{ const cur=$("t_currency"); if(cur) cur.value=ACC_CUR[$("t_account").value]||"PLN"; };
+  renderTxFields(); $("addBtn").onclick=addTx; drawTxList();
+}
+function renderTxFields(){
+  const type=$("t_type").value; const box=$("t_fields");
+  if(type==="deposit"||type==="withdraw"){
+    box.innerHTML='<div class="grid2"><div><label class="f">Kwota</label><input id="t_amount" type="number" inputmode="decimal" placeholder="np. 5000"/></div>'+
+      '<div><label class="f">Waluta</label><select id="t_currency"><option>PLN</option><option>USD</option></select></div></div>'+
+      '<div class="grid2"><div><label class="f">Data</label><input id="t_date" type="date"/></div><div></div></div>';
+    const cur=$("t_currency"); if(cur) cur.value=ACC_CUR[$("t_account").value]||"PLN";
+  } else {
+    box.innerHTML='<div class="grid2"><div><label class="f">Ticker</label><input id="t_ticker" placeholder="np. CRWD" autocapitalize="characters"/></div>'+
+      '<div><label class="f">Kraj</label><select id="t_country"><option>US</option><option>PL</option></select></div></div>'+
       '<div class="grid2"><div><label class="f">Data</label><input id="t_date" type="date"/></div>'+
       '<div><label class="f">Ilość</label><input id="t_qty" type="number" inputmode="decimal" placeholder="np. 1"/></div></div>'+
-      '<div class="grid2"><div><label class="f">Cena (opcjonalnie)</label><input id="t_price" type="number" inputmode="decimal" placeholder="np. 250"/></div>'+
-      '<div style="display:flex;align-items:flex-end"><button class="primary" id="addBtn">Dodaj transakcję</button></div></div>'+
-      '<div id="addMsg"></div></div>'+
-    '<div class="card" style="margin-top:14px"><label class="f" style="margin-bottom:10px">Twoje transakcje (z chmury)</label><div id="txList"></div></div>';
-  $("addBtn").onclick=addTx; drawTxList();
+      '<div class="grid2"><div><label class="f">Cena (opcjonalnie)</label><input id="t_price" type="number" inputmode="decimal" placeholder="np. 250"/></div><div></div></div>';
+  }
 }
 function drawTxList(){
   const box=$("txList");
   if(!allTx.length){ box.innerHTML='<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; return; }
-  box.innerHTML=allTx.map(tx=>{ const isBuy=tx.type==="buy"; const c=isBuy?"#16A34A":"#DC2626"; const t=isBuy?"KUP":"SPR";
-    const det=[ tx.qty!=null?tx.qty+" szt":null, tx.price!=null?"@ "+tx.price:null ].filter(Boolean).join(" · ");
-    return '<div class="row"><div><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+
-      '<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span></div>'+
-      '<div class="meta">'+tx.date+(det?" · "+det:"")+'</div></div><span class="x" data-id="'+tx.id+'">✕</span></div>'; }).join("");
+  const TC={buy:["KUP","#16A34A"],sell:["SPR","#DC2626"],deposit:["WPŁ","#2563EB"],withdraw:["WYP","#F59E0B"]};
+  box.innerHTML=allTx.map(tx=>{ const m=TC[tx.type]||["?","#64748B"]; const c=m[1], t=m[0];
+    const acc=tx.account?(" · "+(ACC_LABEL[tx.account]||tx.account)):"";
+    let title, det;
+    if(tx.type==="deposit"||tx.type==="withdraw"){
+      const amt=tx.amount_pln!=null?(tx.amount_pln+" PLN"):(tx.amount_usd!=null?(tx.amount_usd+" USD"):"—");
+      title='<span class="tk">'+amt+'</span>'; det=tx.date+acc;
+    } else {
+      title='<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span>';
+      const d=[ tx.qty!=null?tx.qty+" szt":null, tx.price!=null?"@ "+tx.price:null ].filter(Boolean).join(" · ");
+      det=tx.date+(d?" · "+d:"")+acc;
+    }
+    return '<div class="row"><div><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+title+'</div>'+
+      '<div class="meta">'+det+'</div></div><span class="x" data-id="'+tx.id+'">✕</span></div>'; }).join("");
   box.querySelectorAll(".x").forEach(el=> el.onclick=()=> delTx(el.getAttribute("data-id")));
 }
 async function addTx(){
   const msg=$("addMsg");
-  const ticker=$("t_ticker").value.trim().toUpperCase(), country=$("t_country").value, type=$("t_type").value, date=$("t_date").value;
-  const qty=$("t_qty").value?parseFloat($("t_qty").value):null, price=$("t_price").value?parseFloat($("t_price").value):null;
-  if(!ticker){ msg.innerHTML='<div class="msg err">Podaj ticker.</div>'; return; }
+  const type=$("t_type").value, account=$("t_account").value, date=$("t_date").value;
   if(!date){ msg.innerHTML='<div class="msg err">Podaj datę.</div>'; return; }
+  let rec;
+  if(type==="deposit"||type==="withdraw"){
+    const amount=$("t_amount").value?parseFloat($("t_amount").value):null; const cur=$("t_currency").value;
+    if(!amount||amount<=0){ msg.innerHTML='<div class="msg err">Podaj kwotę.</div>'; return; }
+    rec={ date, account, type, amount_pln: cur==="PLN"?amount:null, amount_usd: cur==="USD"?amount:null };
+  } else {
+    const ticker=$("t_ticker").value.trim().toUpperCase(), country=$("t_country").value;
+    const qty=$("t_qty").value?parseFloat($("t_qty").value):null, price=$("t_price").value?parseFloat($("t_price").value):null;
+    if(!ticker){ msg.innerHTML='<div class="msg err">Podaj ticker.</div>'; return; }
+    rec={ date, account, type, ticker, country, qty, price };
+  }
   const btn=$("addBtn"); btn.disabled=true; btn.textContent="Zapisuję…";
-  const {error}=await sb.from("transactions").insert({ date, country, type, ticker, qty, price });
-  btn.disabled=false; btn.textContent="Dodaj transakcję";
+  const {error}=await sb.from("transactions").insert(rec);
+  btn.disabled=false; btn.textContent="Dodaj";
   if(error){ msg.innerHTML='<div class="msg err">Błąd zapisu: '+error.message+'</div>'; return; }
   msg.innerHTML='<div class="msg ok">Zapisano w chmurze.</div>';
-  $("t_ticker").value=""; $("t_qty").value=""; $("t_price").value="";
   setTimeout(()=>{ msg.innerHTML=""; },2000);
-  await fetchTx(); drawTxList();
+  renderTxFields(); await fetchTx(); drawTxList();
 }
 async function delTx(id){ await sb.from("transactions").delete().eq("id",id); await fetchTx(); drawTxList(); }
 
