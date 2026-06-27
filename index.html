@@ -13,6 +13,7 @@
 <meta name="theme-color" content="#0F1B2D" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="/config.js"></script>
 <style>
   :root{ --ink:#0F1B2D; --bg:#F5F6F8; --surface:#FFFFFF; --muted:#64748B;
@@ -214,15 +215,20 @@ function computePF(txs, series, qqq, fx, axis){
         const wPLN=(tx.amount_pln!=null)?tx.amount_pln:(tx.amount_usd!=null?tx.amount_usd*fxD:0);
         cashPLN-=wPLN; netDep-=wPLN; cfStep-=wPLN; flows.push({date:tx.date,amt:+wPLN});
         const benchNow=qpx?qqqShares*qpx*fxD:0; if(benchNow>0){ const frac=Math.min(1,wPLN/benchNow); qqqShares*=(1-frac); }
+      } else if(tx.type==="dividend"||tx.type==="interest"||tx.type==="tax"){
+        const a=(tx.amount_pln!=null)?tx.amount_pln:(tx.amount_usd!=null?tx.amount_usd*fxD:0);
+        cashPLN+=a; // podatek ma kwotę ujemną
       } else if(tx.ticker){
         const key=tx.ticker+"|"+(tx.country||"US"); if(!pos[key]) pos[key]={qty:0,country:tx.country||"US",costPLN:0,qqqShares:0}; const p=pos[key];
         const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date); const cls0=onOrBefore(series[key],tx.date); const mv=(cls0!=null)?cls0:(px||0);
         if(tx.type==="sell"){
-          const smvPLN=(tx.country==="PL")?tx.qty*mv:tx.qty*mv*fxD; const procPLN=(tx.country==="PL")?tx.qty*(px||0):tx.qty*(px||0)*fxD;
+          const procPLN=(tx.amount_pln!=null)?Math.abs(tx.amount_pln):((tx.country==="PL")?tx.qty*(px||0):tx.qty*(px||0)*fxD);
+          const smvPLN=(tx.country==="PL")?tx.qty*mv:tx.qty*mv*fxD;
           if(p.qty>0){ const frac=Math.min(1,(tx.qty||0)/p.qty); p.costPLN*=(1-frac); p.qqqShares*=(1-frac); p.qty-=(tx.qty||0); if(p.qty<0)p.qty=0; }
           if(hasDep) cashPLN+=procPLN; else { cfStep-=smvPLN; flows.push({date:tx.date,amt:+procPLN}); }
         } else {
-          const costPLN=(tx.country==="PL")?tx.qty*(px||0):tx.qty*(px||0)*fxD; const costUSD=(tx.country==="PL")?(px?tx.qty*px/fxD:0):tx.qty*(px||0);
+          const costPLN=(tx.amount_pln!=null)?Math.abs(tx.amount_pln):((tx.country==="PL")?tx.qty*(px||0):tx.qty*(px||0)*fxD);
+          const costUSD=(tx.country==="PL")?(px?tx.qty*px/fxD:0):tx.qty*(px||0);
           p.qty+=tx.qty||0; p.costPLN+=costPLN;
           if(hasDep) cashPLN-=costPLN; else { cfStep+=(tx.country==="PL")?tx.qty*mv:tx.qty*mv*fxD; flows.push({date:tx.date,amt:-costPLN}); if(qpx) p.qqqShares+=costUSD/qpx; }
         }
@@ -366,6 +372,89 @@ function drawChart(pts,isProfit){
   });
 }
 
+/* ---------- IMPORT XTB ---------- */
+const ANUM={ "53339039":"IKE", "52040210":"XTB_PLN", "50356831":"XTB_USD", "50098773":"XTB_USD" };
+const SKIP_TK=new Set(["US100","GOLD","DE40","OIL","EURUSD","GBPUSD","DE30","SPX500"]);
+function cT(t){ return (t||"").replace(/\.(US|PL|DE|SW|UK)$/,""); }
+function parseXTB(wb){
+  const ws=wb.Sheets["Cash Operations"];
+  if(!ws) throw new Error("Brak arkusza 'Cash Operations' — czy to wyciąg gotówkowy z XTB?");
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1, raw:true});
+  let acct=null;
+  for(const r of rows){ if(r[0]==="Account number"){ acct=ANUM[String(r[1]).replace(/\.0$/,"")]||null; break; } }
+  let h=-1; for(let i=0;i<rows.length;i++){ if(rows[i][0]==="Type"){ h=i; break; } }
+  if(h<0) throw new Error("Nie znaleziono nagłówka transakcji w pliku.");
+  const isUSD = acct==="XTB_USD";
+  const amtKey = isUSD?"amount_usd":"amount_pln";
+  const out=[]; let skipped=0;
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i]; const T=r[0]; if(!T||T==="Total") continue;
+    const tk=String(r[1]||"").trim(); const time=r[3]; const amt=parseFloat(r[4])||0; const id=r[5]; const cmt=String(r[6]||"");
+    let date;
+    if(time instanceof Date) date=new Date(time.getTime()-time.getTimezoneOffset()*60000).toISOString().slice(0,10);
+    else if(typeof time==="number") date=new Date(Math.round((time-25569)*864e5)).toISOString().slice(0,10);
+    else date=String(time).slice(0,10);
+    if(SKIP_TK.has(cT(tk))){ skipped++; continue; }
+    const country = tk.indexOf(".US")>=0?"US":"PL";
+    const note = id? ("xtb:"+id) : null;
+    const A=(v)=>{ const o={}; o[amtKey]=v; return o; };
+    if(T==="IKE deposit"||T==="Deposit") out.push(Object.assign({type:"deposit",account:acct,date,note},A(Math.abs(amt))));
+    else if(T==="Withdrawal") out.push(Object.assign({type:"withdraw",account:acct,date,note},A(Math.abs(amt))));
+    else if(T==="Stock purchase"){ const m=cmt.match(/OPEN BUY ([\d.]+)(?:\/[\d.]+)? @ ([\d.]+)/); if(!m){skipped++;continue;} out.push(Object.assign({type:"buy",account:acct,ticker:cT(tk),country,qty:+m[1],price:+m[2],date,note},A(Math.abs(amt)))); }
+    else if(T==="Stock sell"){ const m=cmt.match(/CLOSE BUY ([\d.]+)(?:\/[\d.]+)? @ ([\d.]+)/); if(!m){skipped++;continue;} out.push(Object.assign({type:"sell",account:acct,ticker:cT(tk),country,qty:+m[1],price:+m[2],date,note},A(Math.abs(amt)))); }
+    else if(T==="Dividend") out.push(Object.assign({type:"dividend",account:acct,ticker:cT(tk),date,note},A(amt)));
+    else if(T==="Withholding tax") out.push(Object.assign({type:"tax",account:acct,ticker:cT(tk),date,note},A(amt)));
+    else if(T==="Free funds interest") out.push(Object.assign({type:"interest",account:acct,date,note},A(amt)));
+    else skipped++;
+  }
+  return { account:acct, txs:out, skipped };
+}
+let pendingImport=null;
+async function handleImportFile(file){
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(new Uint8Array(buf),{type:"array", cellDates:true});
+    const parsed=parseXTB(wb);
+    if(!parsed.account) throw new Error("Nie rozpoznano numeru rachunku XTB w pliku.");
+    if(!parsed.txs.length) throw new Error("Nie znaleziono operacji do importu.");
+    pendingImport=parsed; renderImportReview(parsed);
+  }catch(e){ $("content").innerHTML='<div class="card"><div class="msg err">Błąd importu: '+e.message+'</div><button class="secondary" id="impBack">← Wróć</button></div>'; $("impBack").onclick=()=>{ activeTab="tx"; renderTab(); }; }
+}
+function renderImportReview(p){
+  const TLABEL={deposit:"Wpłaty",withdraw:"Wypłaty",buy:"Zakupy",sell:"Sprzedaże",dividend:"Dywidendy",tax:"Podatek u źródła",interest:"Odsetki"};
+  const byType={}; p.txs.forEach(t=> byType[t.type]=(byType[t.type]||0)+1);
+  const rowsHtml=Object.keys(TLABEL).filter(k=>byType[k]).map(k=>
+    '<div class="statline"><span class="stk">'+TLABEL[k]+'</span><span class="sv" style="font-size:14px">'+byType[k]+'</span></div>').join("");
+  const accLabel=ACC_LABEL[p.account]||p.account;
+  $("content").innerHTML=
+    '<div class="card" style="margin-bottom:14px"><div class="rhead"><div><div class="meta">PRZEGLĄD IMPORTU</div>'+
+      '<div class="tk" style="font-size:17px">Rachunek: '+accLabel+'</div></div>'+
+      '<div class="rpct" style="font-size:22px">'+p.txs.length+'</div></div>'+
+      rowsHtml+
+      (p.skipped?'<div class="statline"><span class="stk">Pominięte (CFD/inne)</span><span class="sv" style="font-size:14px;color:var(--muted)">'+p.skipped+'</span></div>':'')+
+      '<div class="msg" style="background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE">Wpłaty z tego rachunku napędzą benchmark Nasdaq. Zakupy/sprzedaże/dywidendy to ruchy wewnętrzne. Powtórny import pomija duplikaty.</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px"><button class="secondary" id="impCancel" style="margin-top:0">Anuluj</button>'+
+    '<button class="primary" id="impGo">Importuj do chmury ('+p.txs.length+')</button></div>'+
+    '<div id="impMsg"></div>';
+  $("impCancel").onclick=()=>{ pendingImport=null; activeTab="tx"; renderTab(); };
+  $("impGo").onclick=doImport;
+}
+async function doImport(){
+  if(!pendingImport) return;
+  const btn=$("impGo"); btn.disabled=true; btn.textContent="Importuję…";
+  try{
+    const { data }=await sb.from("transactions").select("note");
+    const existing=new Set((data||[]).map(r=>r.note).filter(Boolean));
+    const fresh=pendingImport.txs.filter(t=> !t.note || !existing.has(t.note));
+    for(let i=0;i<fresh.length;i+=200){ const { error }=await sb.from("transactions").insert(fresh.slice(i,i+200)); if(error) throw error; }
+    const dup=pendingImport.txs.length-fresh.length;
+    $("impMsg").innerHTML='<div class="msg ok">Zaimportowano '+fresh.length+' pozycji'+(dup?(' ('+dup+' duplikatów pominięto)'):'')+'. Sprawdź zakładkę Portfel.</div>';
+    pendingImport=null; await fetchTx();
+    setTimeout(()=>{ activeTab="pf"; renderTab(); }, 1500);
+  }catch(e){ btn.disabled=false; btn.textContent="Importuj do chmury"; $("impMsg").innerHTML='<div class="msg err">Błąd: '+e.message+'</div>'; }
+}
+
 /* ---------- TRANSAKCJE ---------- */
 const ACCOUNTS=[["IKE","IKE (PLN)"],["XTB_PLN","XTB PLN"],["XTB_USD","XTB USD"],["IBKR","IBKR"]];
 const ACC_LABEL={IKE:"IKE",XTB_PLN:"XTB PLN",XTB_USD:"XTB USD",IBKR:"IBKR"};
@@ -381,9 +470,13 @@ function renderTxView(){
       '<button class="primary" id="addBtn" style="margin-top:12px">Dodaj</button>'+
       '<div id="addMsg"></div>'+
     '</div>'+
-    '<div class="card" style="margin-top:14px"><label class="f" style="margin-bottom:10px">Twoje transakcje (z chmury)</label><div id="txList"></div></div>';
+    '<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><label class="f" style="margin:0">Twoje transakcje (z chmury)</label>'+
+      '<button class="secondary" id="impBtn" style="margin:0;width:auto;padding:7px 12px;font-size:13px">📥 Importuj z XTB</button></div>'+
+      '<input type="file" id="impFile" accept=".xlsx,.xls" style="display:none"/><div id="txList"></div></div>';
   $("t_type").onchange=renderTxFields;
   $("t_account").onchange=()=>{ const cur=$("t_currency"); if(cur) cur.value=ACC_CUR[$("t_account").value]||"PLN"; };
+  $("impBtn").onclick=()=> $("impFile").click();
+  $("impFile").onchange=(e)=>{ const f=e.target.files[0]; if(f){ $("content").innerHTML='<div class="card"><div class="empty">Czytam plik XTB…</div></div>'; handleImportFile(f); } };
   renderTxFields(); $("addBtn").onclick=addTx; drawTxList();
 }
 function renderTxFields(){
