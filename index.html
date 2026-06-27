@@ -472,11 +472,13 @@ function renderTxView(){
     '</div>'+
     '<div class="card" style="margin-top:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><label class="f" style="margin:0">Twoje transakcje (z chmury)</label>'+
       '<button class="secondary" id="impBtn" style="margin:0;width:auto;padding:7px 12px;font-size:13px">📥 Importuj z XTB</button></div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;min-height:34px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);cursor:pointer"><input type="checkbox" id="selAll" style="width:18px;height:18px"/> Zaznacz wszystkie</label><div id="bulkBar"></div></div>'+
       '<input type="file" id="impFile" accept=".xlsx,.xls" style="display:none"/><div id="txList"></div></div>';
   $("t_type").onchange=renderTxFields;
   $("t_account").onchange=()=>{ const cur=$("t_currency"); if(cur) cur.value=ACC_CUR[$("t_account").value]||"PLN"; };
   $("impBtn").onclick=()=> $("impFile").click();
   $("impFile").onchange=(e)=>{ const f=e.target.files[0]; if(f){ $("content").innerHTML='<div class="card"><div class="empty">Czytam plik XTB…</div></div>'; handleImportFile(f); } };
+  $("selAll").onclick=()=>{ if($("selAll").checked){ allTx.forEach(t=>selTx.add(String(t.id))); } else { selTx.clear(); } drawTxList(); };
   renderTxFields(); $("addBtn").onclick=addTx; drawTxList();
 }
 function renderTxFields(){
@@ -494,24 +496,44 @@ function renderTxFields(){
       '<div class="grid2"><div><label class="f">Cena (opcjonalnie)</label><input id="t_price" type="number" inputmode="decimal" placeholder="np. 250"/></div><div></div></div>';
   }
 }
+let selTx=new Set();
 function drawTxList(){
   const box=$("txList");
-  if(!allTx.length){ box.innerHTML='<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; return; }
-  const TC={buy:["KUP","#16A34A"],sell:["SPR","#DC2626"],deposit:["WPŁ","#2563EB"],withdraw:["WYP","#F59E0B"]};
-  box.innerHTML=allTx.map(tx=>{ const m=TC[tx.type]||["?","#64748B"]; const c=m[1], t=m[0];
+  if(!allTx.length){ box.innerHTML='<div class="empty">Brak transakcji. Dodaj pierwszą powyżej.</div>'; selTx.clear(); updateBulkBar(); return; }
+  const TC={buy:["KUP","#16A34A"],sell:["SPRZ","#DC2626"],deposit:["WPŁATA","#2563EB"],withdraw:["WYPŁATA","#F59E0B"],dividend:["DYWID.","#0891B2"],tax:["PODATEK","#9333EA"],interest:["ODSETKI","#0D9488"]};
+  box.innerHTML=allTx.map(tx=>{ const m=TC[tx.type]||["INNE","#64748B"]; const c=m[1], t=m[0];
     const acc=tx.account?(" · "+(ACC_LABEL[tx.account]||tx.account)):"";
+    const amtStr=tx.amount_pln!=null?((+tx.amount_pln).toFixed(2)+" PLN"):(tx.amount_usd!=null?((+tx.amount_usd).toFixed(2)+" USD"):null);
     let title, det;
-    if(tx.type==="deposit"||tx.type==="withdraw"){
-      const amt=tx.amount_pln!=null?(tx.amount_pln+" PLN"):(tx.amount_usd!=null?(tx.amount_usd+" USD"):"—");
-      title='<span class="tk">'+amt+'</span>'; det=tx.date+acc;
-    } else {
-      title='<span class="tk">'+tx.ticker+'</span> <span class="meta" style="display:inline">· '+tx.country+'</span>';
+    if(tx.type==="buy"||tx.type==="sell"){
+      title='<span class="tk">'+(tx.ticker||"—")+'</span> <span class="meta" style="display:inline">· '+(tx.country||"")+'</span>';
       const d=[ tx.qty!=null?tx.qty+" szt":null, tx.price!=null?"@ "+tx.price:null ].filter(Boolean).join(" · ");
       det=tx.date+(d?" · "+d:"")+acc;
+    } else {
+      title='<span class="tk">'+(amtStr||"—")+'</span>'+(tx.ticker?' <span class="meta" style="display:inline">· '+tx.ticker+'</span>':'');
+      det=tx.date+acc;
     }
-    return '<div class="row"><div><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+title+'</div>'+
-      '<div class="meta">'+det+'</div></div><span class="x" data-id="'+tx.id+'">✕</span></div>'; }).join("");
-  box.querySelectorAll(".x").forEach(el=> el.onclick=()=> delTx(el.getAttribute("data-id")));
+    const ck=selTx.has(String(tx.id))?"checked":"";
+    return '<div class="row"><label style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer;min-width:0"><input type="checkbox" class="selbox" data-id="'+tx.id+'" '+ck+' style="width:18px;height:18px;flex:none"/>'+
+      '<div style="flex:1;min-width:0"><div><span class="badge" style="background:'+c+'22;color:'+c+'">'+t+'</span>'+title+'</div>'+
+      '<div class="meta">'+det+'</div></div></label><span class="x" data-id="'+tx.id+'">✕</span></div>'; }).join("");
+  box.querySelectorAll(".x").forEach(el=> el.onclick=(e)=>{ e.preventDefault(); delTx(el.getAttribute("data-id")); });
+  box.querySelectorAll(".selbox").forEach(el=> el.onchange=()=>{ const id=el.getAttribute("data-id"); if(el.checked) selTx.add(id); else selTx.delete(id); updateBulkBar(); });
+  updateBulkBar();
+}
+function updateBulkBar(){
+  const bar=$("bulkBar"); if(bar){ const n=selTx.size;
+    bar.innerHTML = n? '<button class="primary" id="delSelBtn" style="background:var(--loss);margin:0;width:auto;padding:7px 12px;font-size:13px">Usuń zaznaczone ('+n+')</button>' : '';
+    if(n) $("delSelBtn").onclick=delSelected; }
+  const sa=$("selAll"); if(sa) sa.checked = selTx.size>0 && selTx.size===allTx.length;
+}
+async function delSelected(){
+  const ids=[...selTx]; if(!ids.length) return;
+  if(!confirm("Usunąć "+ids.length+" zaznaczonych operacji? Tej operacji nie można cofnąć.")) return;
+  const btn=$("delSelBtn"); if(btn){ btn.disabled=true; btn.textContent="Usuwam…"; }
+  const { error }=await sb.from("transactions").delete().in("id",ids);
+  if(error){ alert("Błąd usuwania: "+error.message); if(btn){ btn.disabled=false; btn.textContent="Usuń zaznaczone"; } return; }
+  selTx.clear(); await fetchTx(); drawTxList();
 }
 async function addTx(){
   const msg=$("addMsg");
