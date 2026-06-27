@@ -163,6 +163,19 @@ function onOrBefore(map,date){ if(map[date]!=null) return map[date];
     const k=d.toISOString().slice(0,10); if(map[k]!=null) return map[k]; } return null; }
 function fmtPLN(v){ return Math.round(v).toLocaleString("pl-PL")+" zł"; }
 function fmtPct(v){ return (v>=0?"+":"")+v.toFixed(2)+"%"; }
+function xirr(flows){
+  if(!flows || flows.length<2) return null;
+  const f=flows.slice().sort((a,b)=> a.date<b.date?-1:1);
+  const t0=new Date(f[0].date+"T12:00:00Z").getTime();
+  const yrs=x=> (new Date(x.date+"T12:00:00Z").getTime()-t0)/(365*864e5);
+  const npv=r=> f.reduce((s,x)=> s + x.amt/Math.pow(1+r, yrs(x)), 0);
+  let lo=-0.9999, hi=10, flo=npv(lo), fhi=npv(hi);
+  if(!isFinite(flo)||!isFinite(fhi)||flo*fhi>0) return null;
+  for(let i=0;i<200;i++){ const mid=(lo+hi)/2, fm=npv(mid);
+    if(Math.abs(fm)<1e-6) return mid;
+    if(flo*fm<0){ hi=mid; } else { lo=mid; flo=fm; } }
+  return (lo+hi)/2;
+}
 async function fetchSeries(ticker,country){
   const key=ticker+"|"+country; if(priceCache[key]) return priceCache[key];
   const r=await fetch("/api/prices?symbol="+encodeURIComponent(ticker)+"&country="+encodeURIComponent(country));
@@ -188,18 +201,24 @@ function uniqueTickers(){
 function computePF(txs, series, qqq, fx, axis){
   const pos={}; const out=[]; const sorted=txs.slice().sort((a,b)=> a.date<b.date?-1:1); let bi=0;
   for(const date of axis){
+    let cfStep=0;
     while(bi<sorted.length && sorted[bi].date<=date){
       const tx=sorted[bi]; bi++; if(!tx.ticker) continue;
       const key=tx.ticker+"|"+(tx.country||"US");
       if(!pos[key]) pos[key]={ qty:0, costPLN:0, qqqShares:0, country:tx.country||"US" };
       const p=pos[key];
       if(tx.type==="sell"){
+        const cls0=onOrBefore(series[key],tx.date); const smv=(cls0!=null)?cls0:(tx.price||0);
+        const fxS=onOrBefore(fx,tx.date)||4.0;
+        cfStep-=(tx.country==="PL")?(tx.qty*smv):(tx.qty*smv*fxS);
         if(p.qty>0){ const frac=Math.min(1,(tx.qty||0)/p.qty); p.costPLN*=(1-frac); p.qqqShares*=(1-frac); p.qty-=(tx.qty||0); if(p.qty<0)p.qty=0; }
       } else {
         const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date);
         const fxBuy=onOrBefore(fx,tx.date)||4.0;
+        const cls0=onOrBefore(series[key],tx.date); const mv=(cls0!=null)?cls0:(px||0);
         const amtPLN=(tx.country==="PL")?(tx.qty*(px||0)):(tx.qty*(px||0)*fxBuy);
         const amtUSD=(tx.country==="PL")?(px? tx.qty*px/fxBuy:0):(tx.qty*(px||0));
+        cfStep+=(tx.country==="PL")?(tx.qty*mv):(tx.qty*mv*fxBuy);
         p.qty+=tx.qty||0; p.costPLN+=amtPLN;
         const qpx=onOrBefore(qqq,tx.date); if(qpx) p.qqqShares+=amtUSD/qpx;
       }
@@ -209,10 +228,11 @@ function computePF(txs, series, qqq, fx, axis){
       if(p.qty>1e-9){ const cls=onOrBefore(series[k],date); if(cls!=null) val+=(p.country==="PL")?p.qty*cls:p.qty*cls*fxN; } }
     if(invested<=0) continue;
     const qN=onOrBefore(qqq,date); const benchVal=qN?qqqShares*qN*fxN:0;
-    out.push({ date, invested, port:val, bench:benchVal });
+    out.push({ date, invested, port:val, bench:benchVal, cf:cfStep });
   }
   return out;
 }
+function sx0(v){ return v||0; }
 async function buildPortfolio(){
   const tickers=uniqueTickers(); if(!tickers.length) return null;
   const sorted=allTx.slice().sort((a,b)=> a.date<b.date?-1:1);
@@ -225,7 +245,20 @@ async function buildPortfolio(){
   if(axis.length<3) throw new Error("Za mało danych do wykresu.");
   const pts=computePF(allTx, series, qqq, fx, axis);
   if(!pts.length) throw new Error("Brak danych w zakresie.");
-  return { pts, failed };
+  // TWR (skumulowany) — łańcuch dziennych zwrotów z neutralizacją wpłat
+  let twr=1;
+  for(let i=1;i<pts.length;i++){ const den=pts[i-1].port; if(den>0) twr*=(pts[i].port-(pts[i].cf||0))/den; }
+  const twrPct=(twr-1)*100;
+  // XIRR (rocznie) — przepływy: zakupy (-), sprzedaże (+), wartość końcowa (+)
+  const last=pts[pts.length-1]; const flows=[];
+  allTx.slice().sort((a,b)=> a.date<b.date?-1:1).forEach(tx=>{ if(!tx.ticker) return;
+    const key=tx.ticker+"|"+(tx.country||"US"); const fxB=onOrBefore(fx,tx.date)||4.0;
+    const px=(tx.price!=null)?tx.price:onOrBefore(series[key],tx.date); if(px==null) return;
+    const amt=(tx.country==="PL")?(tx.qty*px):(tx.qty*px*fxB);
+    flows.push({ date:tx.date, amt: tx.type==="sell"? amt : -amt }); });
+  flows.push({ date:last.date, amt:last.port });
+  const xr=xirr(flows);
+  return { pts, failed, twrPct, xirrPct: xr!=null? xr*100 : null };
 }
 function renderPortfolioView(){
   if(!allTx.length){ $("content").innerHTML='<div class="card"><div class="empty">Dodaj transakcje, aby porównać portfel z Nasdaq 100.</div></div>'; return; }
@@ -236,6 +269,7 @@ function renderPortfolioView(){
     const portPct=invested>0?(port/invested-1)*100:0;
     const benchPct=invested>0?(bench/invested-1)*100:0;
     const edge=port-bench; const alpha=portPct-benchPct; const ahead=edge>=0;
+    const twrPct=res.twrPct; const xirrPct=res.xirrPct;
     let warn = res.failed.length ? '<div class="msg warn">Nie pobrano danych dla: '+res.failed.join(", ")+' — te spółki nie są wliczone.</div>' : '';
     $("content").innerHTML=
       '<div class="card" style="margin-bottom:14px">'+
@@ -247,6 +281,8 @@ function renderPortfolioView(){
         '<div class="statline"><span class="stk"><span class="dot" style="background:var(--bench)"></span>Nasdaq 100 (te same wpłaty)</span>'+
           '<span class="sv">'+fmtPLN(bench)+' <span class="'+(benchPct>=0?"gain":"loss")+'" style="font-size:13px">'+fmtPct(benchPct)+'</span></span></div>'+
         '<div class="statline"><span class="stk">Zainwestowane łącznie</span><span class="sv" style="font-weight:700">'+fmtPLN(invested)+'</span></div>'+
+        '<div class="statline"><span class="stk">TWR — skumulowany (jakość wyborów)</span><span class="sv" style="font-size:14px"><span class="'+(twrPct>=0?"gain":"loss")+'">'+fmtPct(twrPct)+'</span></span></div>'+
+        '<div class="statline"><span class="stk">XIRR — rocznie (Twój wynik z czasem)</span><span class="sv" style="font-size:14px"><span class="'+((xirrPct!=null&&xirrPct>=0)?"gain":"loss")+'">'+(xirrPct!=null?fmtPct(xirrPct):"—")+'</span></span></div>'+
         warn+
       '</div>'+
       '<div class="card"><div class="meta" style="margin-bottom:8px">WARTOŚĆ W CZASIE (PLN)</div>'+
